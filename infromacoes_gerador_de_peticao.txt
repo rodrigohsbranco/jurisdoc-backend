@@ -1,0 +1,21 @@
+Judas 1:25:"Ao DEUS único, sábio, Salvador nosso, seja glória e majestade, domínio e poder, agora, e para todo o sempre. Amém.".
+
+
+=========================== INFORMAÇÕES DE ACESSO ==================================
+- nome do banco no postgres:jurisdoc     usuário:jurisdoc_user     senha:@Juris2025#
+
+- comando para rodar o venv(máquina virtual) no terminal toda vez que for iniciar o projeto python:.venv\Scripts\Activate.ps1 - depois rodar o comando python manage.py runserver 127.0.0.1:8000 para rodar o django
+
+- superuser: usuário:admin   senha:@Juris2025#
+
+- token temporário do usuário logado: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzU1MjIyMzc4LCJpYXQiOjE3NTUyMjIwNzgsImp0aSI6ImVjOWFiMWY0NzViZjQzNTJiMDI0YWNiM2QwZjExYzM0IiwidXNlcl9pZCI6IjEifQ.wgE9blUBOebX39rUqyfrTyUqfW2T6noM_vj0jLqOLYA
+
+
+======================= PRÓXIMOS PASSOS ===================================
+- voltar no chat GPT, informar que não vai ser necessário criar PDF e sim downloads de arquivos .docx
+- não começar com os templates e sim com o CRUD de usuários.
+
+- Se quiser, depois extraio esses utilitários (onlyDigits, formatCEP, etc.) para src/utils/br.ts e reaproveitamos em Contas Bancárias e na geração de petições.
+- Se preferir desacoplar, posso te criar um src/utils/br.ts com onlyDigits, isValidCPF e formatCPF para reutilizar em Contas e Templates também. Quer que eu mande esse util?
+- Se quiser, no próximo passo conecto o Dashboard para exibir o número real de clientes/contas e atalho “Nova conta” quando você estiver na tela de um cliente específico.
+- Pronto. Com isso, quem estiver online tem autocomplete dos bancos; sem internet, digita manualmente e segue o jogo. Quer que eu adicione um “atualizar catálogo” discreto (ícone) ao lado do campo para forçar recarregar a lista quando o usuário quiser?
