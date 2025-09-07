@@ -38,3 +38,29 @@ Constraint de segurança: se quiser restringir CRUD de templates só para admin 
 Teste de “tokens quebrados”: se algum modelo vier com << campo >> partido em múltiplos runs do Word e não for detectado, a gente troca o regex por uma rotina que “cola” runs antes da conversão.
 
 Quer já seguir para os filtros BR ou prefere partir logo para o frontend de Templates (lista, upload, visualizar campos, tela de geração)?
+
+📌 Próximos passos sugeridos
+
+Backend:
+
+Filtros/formatadores BR (CPF, CEP, moeda, datas por extenso).
+
+Pré-preenchimento de context no /render usando cliente_id.
+
+Versionamento e histórico de Templates.
+
+Permissões mais granulares (ex.: só admin faz CRUD de templates).
+
+
+
+Exemplo de dica para cliente:
+
+<<Nome Completo>> → {{ nome_completo }}
+
+<<cpf>> → {{ cpf | cpf_format }}
+
+Trechos condicionais:
+
+Antes: <<se idoso>> ... <<se idoso2>>
+
+Agora: {% if idoso %} ... {% endif %}
