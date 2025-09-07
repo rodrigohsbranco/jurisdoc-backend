@@ -10,6 +10,8 @@ Judas 1:25:"Ao DEUS único, sábio, Salvador nosso, seja glória e majestade, do
 
 - token temporário do usuário logado: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoiYWNjZXNzIiwiZXhwIjoxNzU1MjIyMzc4LCJpYXQiOjE3NTUyMjIwNzgsImp0aSI6ImVjOWFiMWY0NzViZjQzNTJiMDI0YWNiM2QwZjExYzM0IiwidXNlcl9pZCI6IjEifQ.wgE9blUBOebX39rUqyfrTyUqfW2T6noM_vj0jLqOLYA
 
+- endereço do google drive com documentos: https://drive.google.com/drive/folders/1tpLH2RQyjp78itxhPJxBywIm89IP6UBX
+
 
 ======================= PRÓXIMOS PASSOS ===================================
 - voltar no chat GPT, informar que não vai ser necessário criar PDF e sim downloads de arquivos .docx
@@ -19,3 +21,20 @@ Judas 1:25:"Ao DEUS único, sábio, Salvador nosso, seja glória e majestade, do
 - Se preferir desacoplar, posso te criar um src/utils/br.ts com onlyDigits, isValidCPF e formatCPF para reutilizar em Contas e Templates também. Quer que eu mande esse util?
 - Se quiser, no próximo passo conecto o Dashboard para exibir o número real de clientes/contas e atalho “Nova conta” quando você estiver na tela de um cliente específico.
 - Pronto. Com isso, quem estiver online tem autocomplete dos bancos; sem internet, digita manualmente e segue o jogo. Quer que eu adicione um “atualizar catálogo” discreto (ícone) ao lado do campo para forçar recarregar a lista quando o usuário quiser?
+
+
+
+Recomendado (nice-to-have, sem urgência)
+
+Filtros Jinja “BR” (cpf_format, moeda_br, extenso_moeda, data_br).
+Quando quiser, te passo só os trechos pra registrar os filtros no docxtpl.
+
+Pré-preenchimento automático no /render: aceitar cliente_id (e opcional conta_principal) e montar o context com base no cadastro.
+
+Versionamento (TemplateVersion) + auditoria de gerações.
+
+Constraint de segurança: se quiser restringir CRUD de templates só para admin novamente, é só ajustar permission_classes/get_permissions.
+
+Teste de “tokens quebrados”: se algum modelo vier com << campo >> partido em múltiplos runs do Word e não for detectado, a gente troca o regex por uma rotina que “cola” runs antes da conversão.
+
+Quer já seguir para os filtros BR ou prefere partir logo para o frontend de Templates (lista, upload, visualizar campos, tela de geração)?
