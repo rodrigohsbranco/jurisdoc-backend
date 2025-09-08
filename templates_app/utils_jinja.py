@@ -97,3 +97,20 @@ def detect_angle_brackets(docx_path: Path) -> bool:
     """
     txt = _read_xml_from_docx(Path(docx_path))
     return bool(ANGLE_TAG_RE.search(txt))
+
+# Detecta {{ ... }} com sintaxe inválida (nomes com espaços, filtros mal formados etc.)
+PRINT_ANY_RE = re.compile(r"{{\s*(.*?)\s*}}")
+# var(.var)*  |  com filtros:  foo | bar | baz(arg)
+_ALLOWED_EXPR_RE = re.compile(
+    r"^[A-Za-z_][\w\.]*"                  # var ou var.aninhada
+    r"(?:\s*\|\s*[A-Za-z_]\w*(?:\([^\)]*\))?)*$"  # filtros encadeados opcionais
+)
+
+def find_invalid_jinja_prints(docx_path: Path):
+    txt = _read_xml_from_docx(Path(docx_path))
+    bad = []
+    for m in PRINT_ANY_RE.finditer(txt):
+        inner = m.group(1).strip()
+        if not _ALLOWED_EXPR_RE.match(inner):
+            bad.append(inner)
+    return bad

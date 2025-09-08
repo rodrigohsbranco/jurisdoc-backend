@@ -21,6 +21,7 @@ Judas 1:25:"Ao DEUS único, sábio, Salvador nosso, seja glória e majestade, do
 - Se preferir desacoplar, posso te criar um src/utils/br.ts com onlyDigits, isValidCPF e formatCPF para reutilizar em Contas e Templates também. Quer que eu mande esse util?
 - Se quiser, no próximo passo conecto o Dashboard para exibir o número real de clientes/contas e atalho “Nova conta” quando você estiver na tela de um cliente específico.
 - Pronto. Com isso, quem estiver online tem autocomplete dos bancos; sem internet, digita manualmente e segue o jogo. Quer que eu adicione um “atualizar catálogo” discreto (ícone) ao lado do campo para forçar recarregar a lista quando o usuário quiser?
+- (Bônus) Deixar o backend “auto-explicativo” quando houver erro de sintaxe Se quiser, dá pra melhorar o diagnóstico da API para te dizer quais prints estão inválidos:
 
 
 

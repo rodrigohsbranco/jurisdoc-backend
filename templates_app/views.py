@@ -8,39 +8,16 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from jinja2 import Environment, StrictUndefined
+from common.jinja_env import build_env
 
 from .models import Template
 from .serializers import TemplateSerializer
-from .utils_jinja import extract_jinja_fields, detect_angle_brackets
+from .utils_jinja import extract_jinja_fields, detect_angle_brackets, find_invalid_jinja_prints
 
 try:
     from docxtpl import DocxTemplate
 except Exception:
     DocxTemplate = None
-
-
-# -------------------------
-# Filtros BR (exemplos)
-# -------------------------
-def _digits(v) -> str:
-    return "".join(ch for ch in str(v) if ch.isdigit())
-
-def cpf_format(v):
-    s = _digits(v)
-    return f"{s[:3]}.{s[3:6]}.{s[6:9]}-{s[9:11]}" if len(s) == 11 else v
-
-def cep_format(v):
-    s = _digits(v)
-    return f"{s[:5]}-{s[5:8]}" if len(s) == 8 else v
-
-def build_env() -> Environment:
-    env = Environment(undefined=StrictUndefined, autoescape=False)
-    # registre aqui todos os filtros que quiser expor no template
-    env.filters["cpf_format"] = cpf_format
-    env.filters["cep_format"] = cep_format
-    # TODO: moeda_br, data_br, extenso_moeda etc.
-    return env
 
 
 class TemplateViewSet(viewsets.ModelViewSet):
@@ -73,10 +50,12 @@ class TemplateViewSet(viewsets.ModelViewSet):
 
         syntax, fields = extract_jinja_fields(file_path)
         has_angle = detect_angle_brackets(file_path)
+        invalid = find_invalid_jinja_prints(file_path)
 
         return Response({
             "syntax": ("jinja (mixed: angle present)" if has_angle else syntax),
             "fields": fields,
+            "invalid_prints": invalid,
         })
 
     @action(detail=True, methods=["post"])

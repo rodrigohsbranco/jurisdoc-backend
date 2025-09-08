@@ -1,3 +1,8 @@
-from django.urls import path
-from .views import GeneratePetition
-urlpatterns = [ path("generate/", GeneratePetition.as_view()) ]
+# petitions/urls.py
+from rest_framework.routers import DefaultRouter
+from .views import PetitionViewSet
+
+router = DefaultRouter()
+router.register(r"", PetitionViewSet, basename="petitions")  # <- raiz
+
+urlpatterns = router.urls
