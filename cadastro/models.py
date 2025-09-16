@@ -1,9 +1,9 @@
-from django.db import models
-
-# Create your models here.
+from django.conf import settings
 from django.db import models
 from django.db.models import Q
+
 from .validators import validate_cpf, validate_cep, validate_uf, only_digits
+
 
 class Cliente(models.Model):
     # Identificação
@@ -45,10 +45,11 @@ TIPO_CONTA_CHOICES = [
     ("salario", "Salário"),
 ]
 
+
 class ContaBancaria(models.Model):
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name="contas")
-    banco_nome = models.CharField(max_length=100)          # Ex.: "Banco do Brasil"
-    banco_codigo = models.CharField(max_length=5, blank=True)  # Ex.: "001"
+    banco_nome = models.CharField(max_length=100)               # Ex.: "Banco do Brasil"
+    banco_codigo = models.CharField(max_length=5, blank=True)   # Ex.: "001" (COMPE)
     agencia = models.CharField(max_length=10)
     conta = models.CharField(max_length=20)
     digito = models.CharField(max_length=5, blank=True)
@@ -72,3 +73,44 @@ class ContaBancaria(models.Model):
     def __str__(self):
         dd = f"-{self.digito}" if self.digito else ""
         return f"{self.cliente.nome_completo} | {self.banco_nome} ag {self.agencia} conta {self.conta}{dd}"
+
+
+class DescricaoBanco(models.Model):
+    """
+    Múltiplas descrições por banco (persistência local).
+    - 'banco_id': identificador estável (ISPB preferencial; se não houver, COMPE).
+    - 'is_ativa': somente uma descrição pode estar ativa por banco (enforced por constraint).
+    """
+    banco_id = models.CharField(max_length=32, db_index=True)     # <- REMOVIDO unique=True
+    banco_nome = models.CharField(max_length=120)
+    descricao = models.TextField(blank=True)
+    is_ativa = models.BooleanField(default=False)
+
+    atualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="descricoes_banco_editadas",
+    )
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Descrição de Banco"
+        verbose_name_plural = "Descrições de Banco"
+        ordering = ["banco_nome", "-is_ativa", "-atualizado_em"]
+        constraints = [
+            # Garante no máximo 1 ativa por banco_id
+            models.UniqueConstraint(
+                fields=["banco_id"],
+                condition=Q(is_ativa=True),
+                name="unique_active_descricaobanco_per_bank",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["banco_id", "atualizado_em"]),
+        ]
+
+    def __str__(self) -> str:
+        estrela = " *" if self.is_ativa else ""
+        return f"{self.banco_nome} ({self.banco_id}){estrela}"

@@ -12,7 +12,7 @@ class TemplateSerializer(serializers.ModelSerializer):
         ext = os.path.splitext(f.name)[1].lower()
         if ext != ".docx":
             raise ValidationError("Envie um arquivo .docx válido.")
-        if getattr(f, "size", 0) and f.size > 25 * 1024 * 1024:
+        if getattr(f, "size", 0) and f.size > 50 * 1024 * 1024:
             raise ValidationError("Tamanho máximo de 25MB.")
         return f
 
