@@ -7,6 +7,8 @@
 # - Concatena o conteúdo e remove as tags XML, colando os <w:t>.
 # - Aplica regex sobre o TEXTO PLANO para capturar {{ variaveis }}.
 # - Mantém um detector simples de << ... >> para orientar a migração.
+# - OBS: campo especial {{ banco }} será preenchido no views.py
+#        usando a descrição ativa do banco, se existir.
 
 from __future__ import annotations
 
@@ -24,24 +26,17 @@ ANGLE_TAG_RE   = re.compile(r"<<\s*([^<>]+?)\s*>>")
 
 
 def _xml_to_plain(xml: str) -> str:
+    """Remove tags <...> e cola os textos. 
+    Isso evita que quebras em <w:t> 'quebrem' tokens como '{{ nome }}' em múltiplos runs.
     """
-    Remove tags <...> e cola os textos. Isso evita que quebras em <w:t>
-    'quebrem' sequências como '{{ nome }}' em múltiplos runs.
-    """
-    # Junta runs adjacentes de texto do Word para evitar separação de tokens
     xml = re.sub(r"</w:t>\s*<w:t[^>]*>", "", xml, flags=re.IGNORECASE)
-    # Remove quaisquer tags XML
     xml = re.sub(r"<[^>]+>", "", xml)
-    # Normaliza espaços
     xml = re.sub(r"\s+", " ", xml)
     return xml
 
 
 def _read_xml_from_docx(docx_path: Path) -> str:
-    """
-    Lê as partes relevantes do .docx e devolve um único texto plano.
-    Considera document.xml, headers, footers, notas.
-    """
+    """Lê as partes relevantes do .docx e devolve um único texto plano."""
     with ZipFile(docx_path) as z:
         parts: List[str] = []
         for name in z.namelist():
@@ -61,9 +56,7 @@ def _read_xml_from_docx(docx_path: Path) -> str:
 
 
 def _snake_case(s: str) -> str:
-    """
-    Converte 'Cliente Nome' ou 'cliente.nome' em 'cliente_nome'.
-    """
+    """Converte 'Cliente Nome' ou 'cliente.nome' em 'cliente_nome'."""
     s = s.strip()
     s = s.replace(".", "_")
     s = re.sub(r"[^\w]+", "_", s, flags=re.UNICODE)
@@ -82,28 +75,30 @@ def extract_jinja_fields(docx_path: Path) -> Tuple[str, List[Dict[str, str]]]:
     txt = _read_xml_from_docx(Path(docx_path))
     vars_ = sorted({m.group(1) for m in JINJA_VAR_RE.finditer(txt)})
 
-    fields = [
-        {"raw": v, "name": _snake_case(v), "type": "string"}
-        for v in vars_
-    ]
+    fields = []
+    for v in vars_:
+        name = _snake_case(v)
+        ftype = "string"
+        if name == "banco":
+            # campo especial tratado no views.py
+            ftype = "string"
+        fields.append({"raw": v, "name": name, "type": ftype})
 
     syntax = "jinja" if fields or JINJA_BLOCK_RE.search(txt) else "unknown"
     return syntax, fields
 
 
 def detect_angle_brackets(docx_path: Path) -> bool:
-    """
-    True se o documento contiver marcadores antigos no formato << ... >>.
-    """
+    """True se o documento contiver marcadores antigos no formato << ... >>."""
     txt = _read_xml_from_docx(Path(docx_path))
     return bool(ANGLE_TAG_RE.search(txt))
 
-# Detecta {{ ... }} com sintaxe inválida (nomes com espaços, filtros mal formados etc.)
+
+# Detecta {{ ... }} com sintaxe inválida
 PRINT_ANY_RE = re.compile(r"{{\s*(.*?)\s*}}")
-# var(.var)*  |  com filtros:  foo | bar | baz(arg)
 _ALLOWED_EXPR_RE = re.compile(
-    r"^[A-Za-z_][\w\.]*"                  # var ou var.aninhada
-    r"(?:\s*\|\s*[A-Za-z_]\w*(?:\([^\)]*\))?)*$"  # filtros encadeados opcionais
+    r"^[A-Za-z_][\w\.]*"
+    r"(?:\s*\|\s*[A-Za-z_]\w*(?:\([^)]*\))?)*$"
 )
 
 def find_invalid_jinja_prints(docx_path: Path):

@@ -14,15 +14,13 @@ ANGLE_RE       = re.compile(r"<<\s*([^<>]+?)\s*>>")
 
 
 def _iter_xml_strings(docx_path: str):
-    """
-    Itera pelos XMLs relevantes dentro do .docx (documento + headers/footers),
+    """Itera pelos XMLs relevantes dentro do .docx (documento + headers/footers),
     decodificando como UTF-8 (ignorando erros).
     """
     with zipfile.ZipFile(docx_path) as z:
         for name in z.namelist():
             if not (name.startswith("word/") and name.endswith(".xml")):
                 continue
-            # documento + headers/footers
             if not (
                 name == "word/document.xml"
                 or name.startswith("word/header")
@@ -37,8 +35,7 @@ def _iter_xml_strings(docx_path: str):
 
 
 def slugify_placeholder(s: str) -> str:
-    """
-    Normaliza nomes livres (com espaços/acentos/barras) para snake_case seguro.
+    """Normaliza nomes livres (com espaços/acentos/barras) para snake_case seguro.
     Ex.: 'Cidade de residência' -> 'cidade_de_residencia'
     """
     s = (s or "").strip().lower()
@@ -49,9 +46,7 @@ def slugify_placeholder(s: str) -> str:
 
 
 def extract_placeholders(docx_path: str) -> List[str]:
-    """
-    Retrocompatibilidade: extrai apenas placeholders Jinja ({{ var }} e {% if var %}).
-    Mantida para códigos existentes que já utilizavam esta função.
+    """Retrocompatibilidade: extrai apenas placeholders Jinja ({{ var }} e {% if var %}).
     """
     names: Set[str] = set()
     for xml in _iter_xml_strings(docx_path):
@@ -59,7 +54,6 @@ def extract_placeholders(docx_path: str) -> List[str]:
             names.add(m.group(1))
         for m in TAG_RE.finditer(xml):
             names.add(m.group(2))
-    # limpa filtros: "valor|moeda" → "valor"
     cleaned = []
     for n in names:
         base = n.split("|", 1)[0]
@@ -68,20 +62,17 @@ def extract_placeholders(docx_path: str) -> List[str]:
 
 
 def extract_fields(docx_path: str) -> Dict[str, Any]:
-    """
-    Detecção "dual":
-      - Se houver placeholders Jinja -> syntax='jinja', fields=[{raw,name,type}]
-      - Caso contrário, procurar tokens << ... >> -> syntax='angle', normaliza 'name'
+    """Detecção "dual":
+      - Se houver placeholders Jinja -> syntax='jinja'
+      - Caso contrário, procurar tokens << ... >> -> syntax='angle'
       - Se nada encontrado -> syntax='unknown'
     """
     names_jinja: Set[str] = set()
     names_angle: Set[str] = set()
 
     for xml in _iter_xml_strings(docx_path):
-        # Jinja
         names_jinja.update(m.group(1) for m in PLACEHOLDER_RE.finditer(xml))
         names_jinja.update(m.group(2) for m in TAG_RE.finditer(xml))
-        # Ângulo
         for m in ANGLE_RE.finditer(xml):
             raw = m.group(1).split("|", 1)[0].strip()
             if raw:
@@ -104,11 +95,7 @@ def extract_fields(docx_path: str) -> Dict[str, Any]:
 
 
 def convert_angle_to_jinja(docx_path: str, mapping: Dict[str, str]) -> str:
-    """
-    Cria um .docx temporário convertendo tokens << raw >> em {{ safe }} usando 'mapping' (raw->safe).
-    Retorna o caminho do arquivo temporário.
-    Observação: abordagem baseada em regex nos XMLs; funciona bem quando os tokens não
-    estão quebrados em múltiplos runs (caso comum). Para casos extremos, avaliar parsing por runs.
+    """Converte tokens << raw >> em {{ safe }} usando 'mapping' (raw->safe).
     """
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".docx")
     tmp.close()
@@ -133,8 +120,8 @@ def convert_angle_to_jinja(docx_path: str, mapping: Dict[str, str]) -> str:
 
 
 def guess_field_type(name: str) -> str:
-    """
-    Heurística simples para sugerir tipos de campo a partir do nome.
+    """Heurística simples para sugerir tipos de campo a partir do nome.
+    Inclui suporte para 'banco' -> string (preenchido com descrição ativa).
     """
     n = (name or "").lower()
     if any(k in n for k in ["valor", "quantia", "preco", "preço", "montante"]):
@@ -155,4 +142,5 @@ def guess_field_type(name: str) -> str:
         return "email"
     if any(k in n for k in ["qtd", "quantidade", "parcelas"]):
         return "int"
+    # fallback
     return "string"

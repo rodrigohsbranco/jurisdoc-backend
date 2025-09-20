@@ -14,6 +14,9 @@ from .models import Template
 from .serializers import TemplateSerializer
 from .utils_jinja import extract_jinja_fields, detect_angle_brackets, find_invalid_jinja_prints
 
+# Import extra
+from cadastro.models import Cliente, DescricaoBanco
+
 try:
     from docxtpl import DocxTemplate
 except Exception:
@@ -38,13 +41,6 @@ class TemplateViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["get"])
     def fields(self, request, pk=None):
-        """
-        Retorna:
-        {
-          "syntax": "jinja" | "jinja (mixed: angle present)" | "unknown",
-          "fields": [{ "raw": "cliente.nome", "name": "cliente_nome", "type": "string" }, ...]
-        }
-        """
         tpl = self.get_object()
         file_path = Path(tpl.file.path)
 
@@ -60,13 +56,6 @@ class TemplateViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def render(self, request, pk=None):
-        """
-        Body:
-        {
-          "context": { ... },   # valores para {{ variaveis }}
-          "filename": "Opcional" # nome base (sem .docx)
-        }
-        """
         if DocxTemplate is None:
             return Response(
                 {"detail": "Dependência 'docxtpl' não instalada."},
@@ -76,7 +65,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
         tpl = self.get_object()
         file_path = Path(tpl.file.path)
 
-        # Bloqueia padrão antigo para forçar migração
+        # Bloqueia padrão antigo
         if detect_angle_brackets(file_path):
             return Response(
                 {"detail": "Este template usa '<< >>'. Atualize para Jinja {{ }} antes de renderizar."},
@@ -86,10 +75,31 @@ class TemplateViewSet(viewsets.ModelViewSet):
         context = request.data.get("context") or {}
         filename = (request.data.get("filename") or tpl.name).strip() or "documento"
 
+        # 🔥 Novo: pré-preenchimento automático se cliente_id for enviado
+        cliente_id = request.data.get("cliente_id")
+        if cliente_id:
+            try:
+                cliente = Cliente.objects.get(pk=cliente_id)
+                conta_principal = cliente.contas.filter(is_principal=True).first()
+                if conta_principal:
+                    # tenta buscar descrição ativa
+                    desc = DescricaoBanco.objects.filter(
+                        banco_nome=conta_principal.banco_nome,
+                        is_ativa=True
+                    ).order_by("-atualizado_em").first()
+
+                    context.setdefault("banco", desc.descricao if desc else conta_principal.banco_nome)
+
+                    # Também podemos preencher outros campos básicos do cliente
+                    context.setdefault("nome_completo", cliente.nome_completo)
+                    context.setdefault("cpf", cliente.cpf)
+                    context.setdefault("cidade", cliente.cidade)
+            except Cliente.DoesNotExist:
+                pass
+
         try:
             doc = DocxTemplate(str(file_path))
             env = build_env()
-            # StrictUndefined: se faltar variável, Jinja lança exceção
             doc.render(context, jinja_env=env)
 
             buf = BytesIO()
@@ -105,7 +115,6 @@ class TemplateViewSet(viewsets.ModelViewSet):
             return resp
 
         except Exception as exc:
-            # Erro de Jinja/docxtpl (ex.: variável ausente) → 400 com detalhe
             return Response(
                 {"detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,

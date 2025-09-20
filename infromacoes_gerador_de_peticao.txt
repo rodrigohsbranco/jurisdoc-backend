@@ -21,6 +21,7 @@ Judas 1:25:"Ao DEUS único, sábio, Salvador nosso, seja glória e majestade, do
 - inserir imagens, será que é possível?
 - alterar o máximo do template para 50MB - OK
 - para inserir os bancos parei no arquivo Bancos MG- RMC- RCC - ele ainda falta, e todos os outros abaixo dele
+- inserir a opção de deletar o textarea caso o usuário queira.
 
 
 {'ENGINE': 'django.db.backends.postgresql', 'NAME': 'jurisdoc', 'USER': 'jurisdoc_user', 'PASSWORD': '@Juris2025#', 'HOST': 'localhost', 'PORT': '5432', 'ATOMIC_REQUESTS': False, 'AUTOCOMMIT': True, 'CONN_MAX_AGE': 0, 'CONN_HEALTH_CHECKS': False, 'OPTIONS': {}, 'TIME_ZONE': None, 'TEST': {'CHARSET': None, 'COLLATION': None, 'MIGRATE': True, 'MIRROR': None, 'NAME': None}}

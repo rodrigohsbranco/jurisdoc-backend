@@ -19,28 +19,26 @@ from .serializers import PetitionSerializer
 from templates_app.models import Template as DocTemplate
 from templates_app.utils_jinja import extract_jinja_fields, detect_angle_brackets
 
+# 🔥 Import para buscar a descrição ativa
+from cadastro.models import DescricaoBanco
+
 try:
     from docxtpl import DocxTemplate
 except Exception:
     DocxTemplate = None
+
 
 class PetitionViewSet(viewsets.ModelViewSet):
     """
     CRUD de Petitions + renderização do documento final (.docx) a partir do Template vinculado.
 
     Endpoints:
-      - GET    /api/petitions/                 -> lista
-      - POST   /api/petitions/                 -> cria (cliente, template, context)
-      - GET    /api/petitions/{id}/            -> detalhe
-      - PATCH  /api/petitions/{id}/            -> atualiza
-      - DELETE /api/petitions/{id}/            -> remove
-
-      - POST   /api/petitions/{id}/render/     -> gera o .docx com o context salvo
-
-    Regras:
-      - Jinja-only: templates com marcadores `<< >>` são rejeitados no /render (400).
-      - StrictUndefined: se faltar variável, retornamos 400 com mensagem clara.
-      - Validação de contexto: comparamos os campos exigidos pelo template (simples) com as chaves do context.
+      - GET    /api/petitions/
+      - POST   /api/petitions/
+      - GET    /api/petitions/{id}/
+      - PATCH  /api/petitions/{id}/
+      - DELETE /api/petitions/{id}/
+      - POST   /api/petitions/{id}/render/
     """
     queryset = Petition.objects.all().order_by("-created_at")
     serializer_class = PetitionSerializer
@@ -49,10 +47,7 @@ class PetitionViewSet(viewsets.ModelViewSet):
     # -------------- Helpers --------------
 
     def _get_template_file_path(self, petition: Petition) -> Path:
-        """
-        Obtém o caminho do arquivo .docx do Template vinculado à Petition.
-        """
-        # petition.template pode ser FK direta ou apenas o id; garantindo o objeto:
+        """Obtém o caminho do arquivo .docx do Template vinculado à Petition."""
         if isinstance(petition.template, DocTemplate):
             tpl_obj = petition.template
         else:
@@ -60,18 +55,8 @@ class PetitionViewSet(viewsets.ModelViewSet):
         return Path(tpl_obj.file.path)
 
     def _validate_context_against_template(self, file_path: Path, context: dict) -> dict:
-        """
-        Valida o 'context' da petition com base nos campos detectados no template (.docx).
-
-        Retorna um dicionário com:
-          {
-            "syntax": "...",
-            "required": [str, ...],   # campos detectados {{ }}
-            "missing":  [str, ...],   # required - context.keys()
-            "has_angle": bool         # se ainda existirem << >>
-          }
-        """
-        syntax, fields = extract_jinja_fields(file_path)  # -> lista de {raw, name, type}
+        """Valida o 'context' da petition com base nos campos detectados no template (.docx)."""
+        syntax, fields = extract_jinja_fields(file_path)
         required = [f["name"] for f in fields] if fields else []
         provided = set(context.keys()) if isinstance(context, dict) else set()
         missing = [f for f in required if f not in provided]
@@ -83,24 +68,65 @@ class PetitionViewSet(viewsets.ModelViewSet):
             "missing": missing,
             "has_angle": has_angle,
         }
-    
+
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
+
+    # ---------- Banco: resolução de descrição ativa ----------
+
+    def _normalize_bank_name(self, name: str) -> str:
+        """
+        Remove sufixos como ' (104)' e espaços extras do nome do banco
+        para comparar com DescricaoBanco.banco_nome.
+        """
+        import re
+        name = (name or "").strip()
+        # remove " (XXXX)" no fim, ex.: "CAIXA ECONOMICA FEDERAL (104)" -> "CAIXA ECONOMICA FEDERAL"
+        name = re.sub(r"\s*\(\d{1,6}\)\s*$", "", name)
+        return name
+
+    def _get_banco_descricao_ativa(self, conta) -> str | None:
+        """
+        Tenta resolver a descrição ativa do banco da conta principal priorizando:
+        1) banco_id (usa conta.banco_codigo)
+        2) banco_nome normalizado (sem sufixo '(104)')
+        Retorna a descrição ativa se achar; caso contrário, None.
+        """
+        if not conta:
+            return None
+
+        # 1) Tenta por banco_id (preferível)
+        banco_id = (getattr(conta, "banco_codigo", None) or "").strip()
+        if banco_id:
+            obj = (
+                DescricaoBanco.objects
+                .filter(banco_id=banco_id, is_ativa=True)
+                .order_by("-atualizado_em")
+                .first()
+            )
+            if obj:
+                return obj.descricao
+
+        # 2) Tenta por banco_nome normalizado
+        banco_nome_norm = self._normalize_bank_name(getattr(conta, "banco_nome", "") or "")
+        if banco_nome_norm:
+            obj = (
+                DescricaoBanco.objects
+                .filter(banco_nome=banco_nome_norm, is_ativa=True)
+                .order_by("-atualizado_em")
+                .first()
+            )
+            if obj:
+                return obj.descricao
+
+        # nada encontrado
+        return None
 
     # -------------- Actions --------------
 
     @action(detail=True, methods=["post"])
     def render(self, request, pk=None):
-        """
-        Gera e retorna o .docx da Petition {id}, usando o Template vinculado e o 'context' salvo.
-
-        Body opcional:
-          {
-            "filename": "nome_base_sem_ext"   # default: petition_<id>.docx
-            "context_override": { ... }       # se quiser substituir/mesclar o context salvo
-            "strict": true|false              # default: true (se false, não barra 'missing')
-          }
-        """
+        """Gera e retorna o .docx da Petition {id}, usando o Template vinculado e o 'context' salvo."""
         if DocxTemplate is None:
             return Response(
                 {"detail": "Dependência 'docxtpl' não instalada."},
@@ -111,12 +137,21 @@ class PetitionViewSet(viewsets.ModelViewSet):
 
         # context final = salvo na petition + (override opcional vindo no POST)
         base_ctx = petition.context or {}
-        override  = request.data.get("context_override") or {}
+        override = request.data.get("context_override") or {}
         if not isinstance(base_ctx, dict) or not isinstance(override, dict):
             return Response({"detail": "Contexto inválido."}, status=status.HTTP_400_BAD_REQUEST)
         context = {**base_ctx, **override}
 
-        # filename opcional
+        # 🔥 Preenche automaticamente o campo "banco" se não estiver no context
+        if "banco" not in context and petition.cliente:
+            conta_principal = petition.cliente.contas.filter(is_principal=True).first()
+            desc_ativa = self._get_banco_descricao_ativa(conta_principal)
+            if desc_ativa:
+                context["banco"] = desc_ativa
+            else:
+                # fallback: mantém o comportamento antigo
+                context["banco"] = getattr(conta_principal, "banco_nome", "") or ""
+
         filename = (request.data.get("filename") or f"petition_{petition.pk}").strip() or f"petition_{petition.pk}"
         strict = bool(request.data.get("strict", True))
 
@@ -134,18 +169,12 @@ class PetitionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Se strict: exige que todas variáveis simples detectadas estejam presentes no context
         if strict and check["missing"]:
             return Response(
-                {
-                    "detail": "Há variáveis ausentes no contexto.",
-                    "missing": check["missing"],
-                    "required": check["required"],
-                },
+                {"detail": "Há variáveis ausentes no contexto.", "missing": check["missing"], "required": check["required"]},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Renderização Jinja-only com StrictUndefined
         try:
             doc = DocxTemplate(str(file_path))
             env = build_env()
@@ -164,5 +193,4 @@ class PetitionViewSet(viewsets.ModelViewSet):
             return resp
 
         except Exception as exc:
-            # Erros de template/contexto → 400 com mensagem clara
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
