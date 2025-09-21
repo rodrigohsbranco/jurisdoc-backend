@@ -13,11 +13,11 @@ Judas 1:25:"Ao DEUS único, sábio, Salvador nosso, seja glória e majestade, do
 - endereço do google drive com documentos: https://drive.google.com/drive/folders/1tpLH2RQyjp78itxhPJxBywIm89IP6UBX
 
 
-- inserir campo de qualificação do cliente e campo do representante, cadastrar o endereço mesmo para o representante
-- trocar idoso por tramitação prioritária;
-- acrescentar no tipo de conta bancária, depósito no cartão;
+- inserir campo de qualificação do cliente e campo do representante, cadastrar o endereço mesmo para o representante - OK
+- trocar idoso por tramitação prioritária; - OK
+- acrescentar no tipo de conta bancária, depósito no cartão; - OK
 - retirar campo nome do banco como obrigatório
-- ajuste com relação ao idoso;
+- ajuste com relação ao idoso; - OK
 - inserir imagens, será que é possível?
 - alterar o máximo do template para 50MB - OK
 - para inserir os bancos parei no arquivo Bancos MG- RMC- RCC - ele ainda falta, e todos os outros abaixo dele

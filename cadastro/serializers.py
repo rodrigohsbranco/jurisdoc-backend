@@ -1,37 +1,68 @@
 from django.db import transaction
 from rest_framework import serializers
+from rest_framework.exceptions import ValidationError
 
-from .models import Cliente, ContaBancaria, DescricaoBanco
-from .validators import only_digits, validate_cpf, validate_cep, validate_uf
+from .models import Cliente, ContaBancaria, DescricaoBanco, Representante
+from .validators import only_digits, validate_cpf, validate_cep, validate_uf, validate_banco_id
 
 
+# =========================
+# Cliente
+# =========================
 class ClienteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cliente
         fields = [
-            "id", "nome_completo", "cpf", "rg", "orgao_expedidor",
-            "qualificacao", "se_idoso",
-            "logradouro", "numero", "bairro", "cidade", "cep", "uf",
-            "criado_em", "atualizado_em",
+            "id",
+            "nome_completo",
+            "cpf",
+            "rg",
+            "orgao_expedidor",
+            # Mantido por compatibilidade (ocultar no front, mas não remover do schema)
+            "qualificacao",               # [DEPRECADO] manter no back
+            # Sinalizadores
+            "se_idoso",
+            "se_incapaz",
+            "se_crianca_adolescente",
+            # Dados civis
+            "nacionalidade",
+            "estado_civil",
+            "profissao",
+            # Endereço
+            "logradouro",
+            "numero",
+            "bairro",
+            "cidade",
+            "cep",
+            "uf",
+            # Auditoria
+            "criado_em",
+            "atualizado_em",
         ]
         read_only_fields = ["criado_em", "atualizado_em"]
 
+    # Normalizações/validações
     def validate_cpf(self, v):
         v = only_digits(v)
         validate_cpf(v)
         return v
 
     def validate_cep(self, v):
-        v = only_digits(v)
-        validate_cep(v)
+        v = only_digits(v or "")
+        if v:
+            validate_cep(v)
         return v
 
     def validate_uf(self, v):
         v = (v or "").upper()
-        validate_uf(v)
+        if v:
+            validate_uf(v)
         return v
 
 
+# =========================
+# Conta Bancária
+# =========================
 class ContaBancariaSerializer(serializers.ModelSerializer):
     # ---- Campos opcionais (write-only) para a funcionalidade de descrições por banco) ----
     # Se enviados, o backend cria uma NOVA variação de descrição para o banco
@@ -43,13 +74,25 @@ class ContaBancariaSerializer(serializers.ModelSerializer):
     class Meta:
         model = ContaBancaria
         fields = [
-            "id", "cliente", "banco_nome", "agencia", "conta", "digito",
-            "tipo", "is_principal", "criado_em", "atualizado_em",
+            "id",
+            "cliente",
+            "banco_nome",
+            "banco_codigo",   # 🔹 Exposto para o front (hidratar descrições por ID)
+            "agencia",
+            "conta",
+            "digito",
+            "tipo",
+            "is_principal",
+            "criado_em",
+            "atualizado_em",
             # novos write-only (não aparecem na resposta)
-            "banco_id", "descricao_banco", "descricao_set_ativa",
+            "banco_id",
+            "descricao_banco",
+            "descricao_set_ativa",
         ]
         read_only_fields = ["criado_em", "atualizado_em"]
 
+    # Normalizações
     def validate_agencia(self, v):
         return only_digits(v)
 
@@ -132,6 +175,9 @@ class ContaBancariaSerializer(serializers.ModelSerializer):
         return obj
 
 
+# =========================
+# Descrição de Banco
+# =========================
 class DescricaoBancoSerializer(serializers.ModelSerializer):
     """
     Serializer do recurso 'descrição por banco' com suporte a múltiplas variações.
@@ -149,6 +195,14 @@ class DescricaoBancoSerializer(serializers.ModelSerializer):
             "atualizado_em",
         ]
         read_only_fields = ["criado_em", "atualizado_em"]
+
+    # 🔒 valida e normaliza (maiúsculas; aceita COMPE/ISPB/slug)
+    def validate_banco_id(self, v: str) -> str:
+        return validate_banco_id(v)
+
+    # (opcional) apenas tira espaços do nome
+    def validate_banco_nome(self, v: str) -> str:
+        return (v or "").strip()
 
     def _set_user(self, obj):
         req = self.context.get("request") if hasattr(self, "context") else None
@@ -179,4 +233,109 @@ class DescricaoBancoSerializer(serializers.ModelSerializer):
 
         obj = super().update(instance, validated_data)
         self._set_user(obj)
+        return obj
+
+
+
+# =========================
+# Representante
+# =========================
+class RepresentanteSerializer(serializers.ModelSerializer):
+    """
+    CRUD de Representante.
+    - Se 'usa_endereco_do_cliente' for True, copiamos o endereço do cliente no create/update.
+      (Sempre copiamos — a flag funciona como "usar o do cliente", não apenas "preencher se vazio".)
+    """
+    class Meta:
+        model = Representante
+        fields = [
+            "id",
+            "cliente",
+            # Identificação
+            "nome_completo",
+            "cpf",
+            "rg",
+            "orgao_expedidor",
+            # Sinalizadores
+            "se_idoso",
+            "se_incapaz",
+            "se_crianca_adolescente",
+            # Dados civis
+            "nacionalidade",
+            "estado_civil",
+            "profissao",
+            # Endereço
+            "usa_endereco_do_cliente",
+            "logradouro",
+            "numero",
+            "bairro",
+            "cidade",
+            "cep",
+            "uf",
+            # Auditoria
+            "criado_em",
+            "atualizado_em",
+        ]
+        read_only_fields = ["criado_em", "atualizado_em"]
+
+    # Normalizações
+    def validate_cpf(self, v):
+        v = only_digits(v)
+        validate_cpf(v)
+        return v
+
+    def validate_cep(self, v):
+        v = only_digits(v or "")
+        if v:
+            validate_cep(v)
+        return v
+
+    def validate_uf(self, v):
+        v = (v or "").upper()
+        if v:
+            validate_uf(v)
+        return v
+
+    def validate(self, attrs):
+        # Garante unicidade (cliente, cpf)
+        cliente = attrs.get("cliente") or getattr(getattr(self, "instance", None), "cliente", None)
+        cpf = attrs.get("cpf") or getattr(getattr(self, "instance", None), "cpf", None)
+        if cliente and cpf:
+            cpf_norm = only_digits(cpf)
+            qs = Representante.objects.filter(cliente=cliente, cpf=cpf_norm)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise ValidationError({"cpf": "Já existe um representante com este CPF para este cliente."})
+        return attrs
+
+    def _copy_client_address_if_needed(self, obj: Representante):
+        """
+        Copia endereço do cliente para o representante se usa_endereco_do_cliente=True.
+        """
+        if not obj.usa_endereco_do_cliente:
+            return
+
+        cliente = obj.cliente
+        dirty = False
+
+        for field in ["logradouro", "numero", "bairro", "cidade", "cep", "uf"]:
+            new_val = getattr(cliente, field)
+            if getattr(obj, field) != new_val:
+                setattr(obj, field, new_val)
+                dirty = True
+
+        if dirty:
+            obj.save(update_fields=["logradouro", "numero", "bairro", "cidade", "cep", "uf"])
+
+    @transaction.atomic
+    def create(self, validated_data):
+        obj = super().create(validated_data)
+        self._copy_client_address_if_needed(obj)
+        return obj
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        obj = super().update(instance, validated_data)
+        self._copy_client_address_if_needed(obj)
         return obj

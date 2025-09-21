@@ -2,7 +2,7 @@
 from rest_framework import viewsets, permissions, filters, decorators, response, status
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import Cliente, ContaBancaria, DescricaoBanco
+from .models import Cliente, ContaBancaria, DescricaoBanco, Representante
 from .filters import ClienteFilter, ContaBancariaFilter, DescricaoBancoFilter
 
 
@@ -15,12 +15,27 @@ class IsAdmin(permissions.BasePermission):
 
 class ClienteViewSet(viewsets.ModelViewSet):
     queryset = Cliente.objects.all().order_by("nome_completo")
-    permission_classes = [permissions.IsAuthenticated]  # << AQUI
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = None  # setado no get_serializer_class
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ClienteFilter
-    search_fields = ["nome_completo", "cpf", "cidade", "bairro"]
-    ordering_fields = ["nome_completo", "criado_em", "atualizado_em"]
+    search_fields = [
+        "nome_completo",
+        "cpf",
+        "cidade",
+        "bairro",
+        # campos novos úteis para busca
+        "profissao",
+        "nacionalidade",
+    ]
+    ordering_fields = [
+        "nome_completo",
+        "criado_em",
+        "atualizado_em",
+        # ordenações adicionais úteis
+        "cidade",
+        "bairro",
+    ]
 
     def get_serializer_class(self):
         from .serializers import ClienteSerializer
@@ -33,7 +48,7 @@ class ContaBancariaViewSet(viewsets.ModelViewSet):
         .all()
         .order_by("cliente__nome_completo", "banco_nome")
     )
-    permission_classes = [permissions.IsAuthenticated]  # << E AQUI
+    permission_classes = [permissions.IsAuthenticated]
     serializer_class = None
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ContaBancariaFilter
@@ -130,3 +145,45 @@ class DescricaoBancoViewSet(viewsets.ModelViewSet):
         ser.is_valid(raise_exception=True)
         ser.save()
         return response.Response(ser.data, status=status.HTTP_200_OK)
+
+
+# --------------------------------------------------------------------
+# Representantes
+# --------------------------------------------------------------------
+class RepresentanteViewSet(viewsets.ModelViewSet):
+    """
+    CRUD de Representantes de Cliente.
+    - Cópia de endereço do cliente é feita no serializer quando 'usa_endereco_do_cliente=True'.
+    """
+    queryset = Representante.objects.select_related("cliente").all().order_by("cliente__nome_completo", "nome_completo")
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = None  # setado no get_serializer_class
+
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    # Usamos filterset_fields simples para não depender de um filtro customizado
+    filterset_fields = [
+        "cliente",
+        "cpf",
+        "se_idoso",
+        "se_incapaz",
+        "se_crianca_adolescente",
+    ]
+    search_fields = [
+        "nome_completo",
+        "cpf",
+        "cidade",
+        "bairro",
+        "profissao",
+        "nacionalidade",
+        "cliente__nome_completo",
+    ]
+    ordering_fields = [
+        "nome_completo",
+        "criado_em",
+        "atualizado_em",
+        "cliente__nome_completo",
+    ]
+
+    def get_serializer_class(self):
+        from .serializers import RepresentanteSerializer
+        return RepresentanteSerializer
