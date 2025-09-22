@@ -19,13 +19,11 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-
     # Third-party
     "rest_framework",
     "corsheaders",
     "django_filters",
     "drf_spectacular",
-
     # Apps do projeto
     "accounts",
     "templates_app",
@@ -38,6 +36,7 @@ MIDDLEWARE = [
     # CORS deve vir o mais alto possível
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -80,7 +79,9 @@ DATABASES = {
 
 # --- Senhas ---
 AUTH_PASSWORD_VALIDATORS = [
-    {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"
+    },
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
@@ -94,9 +95,15 @@ USE_TZ = True
 
 # --- Static/Media ---
 STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"   # útil se você decidir servir estáticos em prod
+STATIC_ROOT = BASE_DIR / "staticfiles"  # útil se você decidir servir estáticos em prod
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+
+# WhiteNoise: compressão e hash de arquivo para cache busting
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
+
+# Se houver uma pasta raiz "static/", descomente abaixo
+# STATICFILES_DIRS = [BASE_DIR / "static"]
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
@@ -130,20 +137,30 @@ SPECTACULAR_SETTINGS = {
 # CORS/CSRF: inclua TODAS as origens possíveis do front local
 CORS_ALLOWED_ORIGINS = os.getenv(
     "CORS",
-    ",".join([
-        "http://127.0.0.1:4173", "http://localhost:4173",  # vite preview
-        "http://127.0.0.1:5173", "http://localhost:5173",  # vite dev
-        "http://127.0.0.1:3000", "http://localhost:3000",  # se usar 3000
-    ])
+    ",".join(
+        [
+            "http://127.0.0.1:4173",
+            "http://localhost:4173",  # vite preview
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",  # vite dev
+            "http://127.0.0.1:3000",
+            "http://localhost:3000",  # se usar 3000
+        ]
+    ),
 ).split(",")
 
 CSRF_TRUSTED_ORIGINS = os.getenv(
     "CSRF_TRUSTED_ORIGINS",
-    ",".join([
-        "http://127.0.0.1:4173", "http://localhost:4173",
-        "http://127.0.0.1:5173", "http://localhost:5173",
-        "http://127.0.0.1:3000", "http://localhost:3000",
-    ])
+    ",".join(
+        [
+            "http://127.0.0.1:4173",
+            "http://localhost:4173",
+            "http://127.0.0.1:5173",
+            "http://localhost:5173",
+            "http://127.0.0.1:3000",
+            "http://localhost:3000",
+        ]
+    ),
 ).split(",")
 
 # Usuário customizado
