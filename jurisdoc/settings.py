@@ -145,6 +145,9 @@ CORS_ALLOWED_ORIGINS = os.getenv(
             "http://localhost:5173",  # vite dev
             "http://127.0.0.1:3000",
             "http://localhost:3000",  # se usar 3000
+            "http://127.0.0.1",
+            "http://localhost",
+            "http://jurisdoc.local",
         ]
     ),
 ).split(",")
