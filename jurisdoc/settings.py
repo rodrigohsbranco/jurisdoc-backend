@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # --- Básico / Prod-friendly defaults ---
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-unsafe-change-me")
 DEBUG = os.getenv("DEBUG", "0") == "1"  # default OFF; ligue com DEBUG=1 no .env
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+ALLOWED_HOSTS = ["*"]
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -134,25 +134,6 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "0.1.0",
 }
 
-# CORS/CSRF: inclua TODAS as origens possíveis do front local
-CORS_ALLOWED_ORIGINS = os.getenv(
-    "CORS",
-    ",".join(
-        [
-            "http://127.0.0.1:4173",
-            "http://localhost:4173",  # vite preview
-            "http://127.0.0.1:5173",
-            "http://localhost:5173",  # vite dev
-            "http://127.0.0.1:3000",
-            "http://localhost:3000",  # se usar 3000
-            "http://192.168.0.250",
-            "http://127.0.0.1",
-            "http://localhost",
-            "http://jurisdoc.local",
-        ]
-    ),
-).split(",")
-
 CSRF_TRUSTED_ORIGINS = os.getenv(
     "CSRF_TRUSTED_ORIGINS",
     ",".join(
@@ -163,6 +144,7 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
             "http://localhost:5173",
             "http://127.0.0.1:3000",
             "http://localhost:3000",
+            "http://192.168.0.250:8000",
             "http://192.168.0.250",
             "http://127.0.0.1",
             "http://localhost",
