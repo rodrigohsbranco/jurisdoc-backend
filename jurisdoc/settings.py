@@ -145,6 +145,7 @@ CORS_ALLOWED_ORIGINS = os.getenv(
             "http://localhost:5173",  # vite dev
             "http://127.0.0.1:3000",
             "http://localhost:3000",  # se usar 3000
+            "http://192.168.0.250",
             "http://127.0.0.1",
             "http://localhost",
             "http://jurisdoc.local",
@@ -162,12 +163,16 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
             "http://localhost:5173",
             "http://127.0.0.1:3000",
             "http://localhost:3000",
+            "http://192.168.0.250",
             "http://127.0.0.1",
             "http://localhost",
             "http://jurisdoc.local",
         ]
     ),
 ).split(",")
+
+# Abrir CORS para todas as origens (atenção: não use com credenciais)
+CORS_ALLOW_ALL_ORIGINS = True
 
 # Usuário customizado
 AUTH_USER_MODEL = "accounts.User"
