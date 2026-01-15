@@ -3,6 +3,7 @@ from io import BytesIO
 
 from django.http import HttpResponse
 from django.utils.encoding import iri_to_uri
+from django.conf import settings
 
 from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
@@ -18,9 +19,11 @@ from .utils_jinja import extract_jinja_fields, detect_angle_brackets, find_inval
 from cadastro.models import Cliente, DescricaoBanco
 
 try:
-    from docxtpl import DocxTemplate
+    from docxtpl import DocxTemplate, InlineImage
+    from docx.shared import Mm
 except Exception:
     DocxTemplate = None
+    InlineImage = None
 
 
 class TemplateViewSet(viewsets.ModelViewSet):
@@ -72,6 +75,18 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Valida sintaxe das variáveis Jinja antes de tentar renderizar
+        invalid_prints = find_invalid_jinja_prints(file_path)
+        if invalid_prints:
+            return Response(
+                {
+                    "detail": "Foram encontradas expressões Jinja inválidas no template. "
+                              "Verifique a sintaxe das variáveis destacadas em 'invalid_prints'.",
+                    "invalid_prints": invalid_prints,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         context = request.data.get("context") or {}
         filename = (request.data.get("filename") or tpl.name).strip() or "documento"
 
@@ -100,6 +115,31 @@ class TemplateViewSet(viewsets.ModelViewSet):
         try:
             doc = DocxTemplate(str(file_path))
             env = build_env()
+
+            # Trata imagem_do_contrato enviada no context como PATH salvo em MEDIA_ROOT.
+            # Exemplo esperado no JSON: "/media/contratos/nome_da_imagem.png"
+            img_key = "imagem_do_contrato"
+            img_val = context.get(img_key)
+
+            if InlineImage is not None and isinstance(img_val, str) and img_val.strip():
+                raw_path = img_val.strip()
+
+                # Remove prefixos "/media/" ou "media/" se existirem
+                if raw_path.startswith("/media/"):
+                    raw_path = raw_path[len("/media/") :]
+                elif raw_path.startswith("media/"):
+                    raw_path = raw_path[len("media/") :]
+
+                # Caminho absoluto em MEDIA_ROOT
+                full_path = Path(settings.MEDIA_ROOT) / raw_path
+
+                if full_path.exists():
+                    context[img_key] = InlineImage(
+                        doc,
+                        str(full_path),
+                        width=Mm(80),  # ajuste do tamanho da imagem no documento
+                    )
+
             doc.render(context, jinja_env=env)
 
             buf = BytesIO()

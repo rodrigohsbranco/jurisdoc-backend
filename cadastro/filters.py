@@ -27,6 +27,7 @@ class ClienteFilter(df.FilterSet):
     se_idoso = df.BooleanFilter(field_name="se_idoso")
     se_incapaz = df.BooleanFilter(field_name="se_incapaz")
     se_crianca_adolescente = df.BooleanFilter(field_name="se_crianca_adolescente")
+    is_active = df.BooleanFilter(field_name="is_active")
 
     # Dados civis
     nacionalidade_icontains = df.CharFilter(field_name="nacionalidade", lookup_expr="icontains")
@@ -41,6 +42,7 @@ class ClienteFilter(df.FilterSet):
             "se_incapaz",
             "se_crianca_adolescente",
             "estado_civil",
+            "is_active",
         ]
 
     def filter_cpf(self, queryset, name, value):
