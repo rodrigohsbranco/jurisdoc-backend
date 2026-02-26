@@ -8,5 +8,11 @@ services:
     ports:
       - "8000:8000"
     restart: always
+    environment:
+      - MEDIA_ROOT=/media_data
     volumes:
       - /local_do_arquivo:/app
+      - media_data:/media_data
+
+volumes:
+  media_data:

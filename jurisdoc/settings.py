@@ -150,6 +150,8 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
             "http://127.0.0.1",
             "http://localhost",
             "http://jurisdoc.local",
+            "https://jurisdoc-frontend.hqdg0k.easypanel.host",
+            "https://jurisdoc-backend.hqdg0k.easypanel.host",
         ]
     ),
 ).split(",")

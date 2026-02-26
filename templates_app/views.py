@@ -117,7 +117,8 @@ class TemplateViewSet(viewsets.ModelViewSet):
             env = build_env()
 
             # Trata imagem_do_contrato enviada no context como PATH salvo em MEDIA_ROOT.
-            # Exemplo esperado no JSON: "/media/contratos/nome_da_imagem.png"
+            # Ex.: MEDIA_ROOT pode ser /media_data (Docker) → arquivos em /media_data/contratos/
+            # URL esperada no JSON: "/media/contratos/nome_da_imagem.png"
             img_key = "imagem_do_contrato"
             img_val = context.get(img_key)
 
