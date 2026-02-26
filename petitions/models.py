@@ -9,8 +9,9 @@ class Petition(models.Model):
     """
     Petição vinculada a um Cliente + Template.
     - O campo 'context' armazena variáveis preenchidas no momento da criação.
-    - O campo especial 'banco' (quando usado em templates) é preenchido
-      automaticamente com a descrição ativa do banco da conta principal do cliente.
+    - Durante a renderização, o sistema preenche automaticamente as variáveis
+      de banco (nome_banco, cnpj, endereco_banco) com base na descrição ativa
+      da conta principal do cliente.
     """
 
     cliente = models.ForeignKey(

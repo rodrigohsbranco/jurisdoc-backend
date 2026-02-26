@@ -85,8 +85,16 @@ class DescricaoBancoAdmin(admin.ModelAdmin):
     """
     Admin para 'descrições por banco' (múltiplas por banco_id; 1 ativa por vez).
     """
-    list_display = ("banco_id", "banco_nome", "is_ativa", "atualizado_por", "atualizado_em")
-    search_fields = ("banco_id", "banco_nome", "descricao", "atualizado_por__username")
+    list_display = (
+    "banco_id",
+    "banco_nome",
+    "nome_banco",
+    "cnpj",
+    "is_ativa",
+    "atualizado_por",
+    "atualizado_em",
+)
+    search_fields = ("banco_id", "banco_nome", "nome_banco", "cnpj", "endereco", "atualizado_por__username")
     list_filter = ("is_ativa", "banco_nome", "banco_id")
     ordering = ("banco_nome", "-is_ativa", "-atualizado_em")
     readonly_fields = ("criado_em", "atualizado_em")

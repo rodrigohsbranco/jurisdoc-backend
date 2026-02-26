@@ -73,13 +73,17 @@ class ContaBancariaFilter(df.FilterSet):
 class DescricaoBancoFilter(df.FilterSet):
     """
     Filtros para o recurso de descrições por banco (múltiplas por banco_id).
+    Agora adaptado aos campos estruturados (nome_banco, cnpj, endereco).
     """
     banco_id = df.CharFilter(field_name="banco_id", lookup_expr="exact")
     banco_id_icontains = df.CharFilter(field_name="banco_id", lookup_expr="icontains")
     banco_nome_icontains = df.CharFilter(field_name="banco_nome", lookup_expr="icontains")
-    descricao_icontains = df.CharFilter(field_name="descricao", lookup_expr="icontains")
 
-    # ativa/inativa
+    # 🔹 novos campos
+    nome_banco_icontains = df.CharFilter(field_name="nome_banco", lookup_expr="icontains")
+    cnpj_icontains = df.CharFilter(field_name="cnpj", lookup_expr="icontains")
+    endereco_icontains = df.CharFilter(field_name="endereco", lookup_expr="icontains")
+
     is_ativa = df.BooleanFilter(field_name="is_ativa")
 
     criado_em_de = df.DateTimeFilter(field_name="criado_em", lookup_expr="gte")
@@ -87,23 +91,34 @@ class DescricaoBancoFilter(df.FilterSet):
     atualizado_em_de = df.DateTimeFilter(field_name="atualizado_em", lookup_expr="gte")
     atualizado_em_ate = df.DateTimeFilter(field_name="atualizado_em", lookup_expr="lte")
 
-    has_descricao = df.BooleanFilter(method="filter_has_descricao")
+    # opcional, mantém uma flag genérica de "possui dados"
+    has_dados = df.BooleanFilter(method="filter_has_dados")
 
     class Meta:
         model = DescricaoBanco
         fields = [
             "banco_id",
             "is_ativa",
-            "has_descricao",
+            "has_dados",
         ]
 
-    def filter_has_descricao(self, queryset, name, value: bool):
+    def filter_has_dados(self, queryset, name, value: bool):
+        """
+        Permite filtrar registros que possuem algum dado preenchido
+        (nome_banco, cnpj ou endereco).
+        """
         if value is True:
-            # tem conteúdo (não vazio e não nulo)
-            return queryset.exclude(Q(descricao__isnull=True) | Q(descricao=""))
+            return queryset.exclude(
+                Q(nome_banco__isnull=True) | Q(nome_banco=""),
+                Q(cnpj__isnull=True) | Q(cnpj=""),
+                Q(endereco__isnull=True) | Q(endereco="")
+            )
         if value is False:
-            # vazio ou nulo
-            return queryset.filter(Q(descricao__isnull=True) | Q(descricao=""))
+            return queryset.filter(
+                Q(nome_banco__isnull=True) | Q(nome_banco=""),
+                Q(cnpj__isnull=True) | Q(cnpj=""),
+                Q(endereco__isnull=True) | Q(endereco="")
+            )
         return queryset
 
 

@@ -96,45 +96,38 @@ class ContaBancaria(models.Model):
         return f"{self.cliente.nome_completo} | {self.banco_nome} ag {self.agencia} conta {self.conta}{dd}"
 
 
+# cadastro/models.py
+from django.db import models
+from django.conf import settings
+
 class DescricaoBanco(models.Model):
-    """
-    Múltiplas descrições por banco (persistência local).
-    - 'banco_id': identificador estável (ISPB preferencial; se não houver, COMPE).
-    - 'is_ativa': somente uma descrição pode estar ativa por banco (enforced por constraint).
-    """
-    banco_id = models.CharField(max_length=32, db_index=True)     # <- REMOVIDO unique=True
-    banco_nome = models.CharField(max_length=120)
-    descricao = models.TextField(blank=True)
+    banco_id = models.CharField(max_length=50)
+    banco_nome = models.CharField(max_length=255)
+
+    # 🔄 Substituímos o campo 'descricao' pelos novos campos estruturados
+    nome_banco = models.CharField(max_length=255, null=True, blank=True)
+    cnpj = models.CharField(max_length=18, null=True, blank=True)
+    endereco = models.CharField(max_length=255, null=True, blank=True)
+
     is_ativa = models.BooleanField(default=False)
 
-    atualizado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name="descricoes_banco_editadas",
-    )
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
+    atualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="descricoes_banco_atualizadas",
+    )
 
     class Meta:
         verbose_name = "Descrição de Banco"
-        verbose_name_plural = "Descrições de Banco"
+        verbose_name_plural = "Descrições de Bancos"
         ordering = ["banco_nome", "-is_ativa", "-atualizado_em"]
-        constraints = [
-            # Garante no máximo 1 ativa por banco_id
-            models.UniqueConstraint(
-                fields=["banco_id"],
-                condition=Q(is_ativa=True),
-                name="unique_active_descricaobanco_per_bank",
-            ),
-        ]
-        indexes = [
-            models.Index(fields=["banco_id", "atualizado_em"]),
-        ]
 
-    def __str__(self) -> str:
-        estrela = " *" if self.is_ativa else ""
-        return f"{self.banco_nome} ({self.banco_id}){estrela}"
+    def __str__(self):
+        return f"{self.banco_nome} - {self.nome_banco} ({'ATIVA' if self.is_ativa else 'Inativa'})"
 
 
 # --------------------------------------------------------------------

@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "petitions",
     "cadastro",
     "reports",
+    "contracts",
 ]
 
 MIDDLEWARE = [

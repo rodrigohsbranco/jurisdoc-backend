@@ -178,63 +178,66 @@ class ContaBancariaSerializer(serializers.ModelSerializer):
 # =========================
 # Descrição de Banco
 # =========================
+# cadastro/serializers.py
+
 class DescricaoBancoSerializer(serializers.ModelSerializer):
     """
     Serializer do recurso 'descrição por banco' com suporte a múltiplas variações.
-    - Se 'is_ativa' for True no create/update, desativa as demais do mesmo banco_id.
+    Agora usa campos estruturados (nome_banco, cnpj, endereco).
     """
+
     class Meta:
         model = DescricaoBanco
         fields = [
             "id",
             "banco_id",
             "banco_nome",
-            "descricao",
+            "nome_banco",
+            "cnpj",
+            "endereco",
             "is_ativa",
             "criado_em",
             "atualizado_em",
         ]
         read_only_fields = ["criado_em", "atualizado_em"]
 
-    # 🔒 valida e normaliza (maiúsculas; aceita COMPE/ISPB/slug)
+    # --- Validadores individuais ---
     def validate_banco_id(self, v: str) -> str:
         return validate_banco_id(v)
 
-    # (opcional) apenas tira espaços do nome
     def validate_banco_nome(self, v: str) -> str:
         return (v or "").strip()
 
-    def _set_user(self, obj):
-        req = self.context.get("request") if hasattr(self, "context") else None
-        user = getattr(req, "user", None)
-        if user and getattr(user, "is_authenticated", False):
-            obj.atualizado_por = user
-            obj.save(update_fields=["atualizado_por"])
-
+    # --- Criação com controle de "is_ativa" ---
     @transaction.atomic
     def create(self, validated_data):
         set_ativa = bool(validated_data.get("is_ativa", False))
         banco_id = validated_data.get("banco_id")
-        if set_ativa and banco_id:
-            # Desativa outras ativas do mesmo banco antes de criar esta
-            DescricaoBanco.objects.filter(banco_id=banco_id, is_ativa=True).update(is_ativa=False)
 
+        # Se marcamos esta como ativa, desativa as demais do mesmo banco
+        if set_ativa and banco_id:
+            DescricaoBanco.objects.filter(
+                banco_id=banco_id, is_ativa=True
+            ).update(is_ativa=False)
+
+        # Cria o novo registro normalmente
         obj = super().create(validated_data)
-        self._set_user(obj)
         return obj
 
+    # --- Atualização com controle de "is_ativa" ---
     @transaction.atomic
     def update(self, instance, validated_data):
         set_ativa = bool(validated_data.get("is_ativa", instance.is_ativa))
         banco_id = validated_data.get("banco_id", instance.banco_id)
+
+        # Se esta variação for marcada como ativa, desativa as demais
         if set_ativa and banco_id:
-            # Desativa outras ativas do mesmo banco (exceto esta)
-            DescricaoBanco.objects.filter(banco_id=banco_id, is_ativa=True).exclude(pk=instance.pk).update(is_ativa=False)
+            DescricaoBanco.objects.filter(
+                banco_id=banco_id, is_ativa=True
+            ).exclude(pk=instance.pk).update(is_ativa=False)
 
         obj = super().update(instance, validated_data)
-        self._set_user(obj)
         return obj
-
 
 
 # =========================

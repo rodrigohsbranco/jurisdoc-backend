@@ -72,19 +72,33 @@ class DescricaoBancoViewSet(viewsets.ModelViewSet):
       - PATCH/PUT /api/cadastro/bancos-descricoes/{id}/           → edita a descrição (pode marcar is_ativa=True)
       - POST/PATCH /api/cadastro/bancos-descricoes/{id}/set-ativa/→ marca esta como ativa (desativa as demais do mesmo banco)
     """
-    queryset = DescricaoBanco.objects.all().order_by("banco_nome", "-is_ativa", "-atualizado_em")
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = None  # setado no get_serializer_class
-    # lookup_field padrão = "pk" (id). Mantemos padrão pois há várias descrições por banco_id.
 
+    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = DescricaoBancoFilter
-    search_fields = ["banco_nome", "descricao", "banco_id"]
+    search_fields = ["banco_nome", "nome_banco", "cnpj", "endereco", "banco_id"]
     ordering_fields = ["banco_nome", "is_ativa", "atualizado_em", "criado_em"]
 
     def get_serializer_class(self):
         from .serializers import DescricaoBancoSerializer
         return DescricaoBancoSerializer
+
+    def get_queryset(self):
+        """
+        Retorna o queryset base. Mantém filtragens apenas para listagem,
+        mas permite exclusão de qualquer registro existente.
+        """
+        qs = DescricaoBanco.objects.all().order_by("banco_nome", "-is_ativa", "-atualizado_em")
+
+        # ⚙️ Se a ação for listagem, aplicamos filtros via filterset
+        if self.action in ["list", "variacoes", "lookup"]:
+            # A filtragem extra ocorre nos métodos específicos (lookup/variacoes)
+            return qs
+
+        # Para DELETE ou PATCH/PUT, retornamos o conjunto completo
+        return qs
+
+    # ====================== Custom Actions ======================
 
     @decorators.action(detail=False, methods=["get"], url_path="lookup")
     def lookup(self, request):
@@ -107,8 +121,10 @@ class DescricaoBancoViewSet(viewsets.ModelViewSet):
         else:
             qs = qs.filter(banco_nome=bank_name)
 
-        # tenta a ativa; se não houver, pega a mais recente
-        obj = qs.filter(is_ativa=True).order_by("-atualizado_em").first() or qs.order_by("-is_ativa", "-atualizado_em").first()
+        obj = (
+            qs.filter(is_ativa=True).order_by("-atualizado_em").first()
+            or qs.order_by("-is_ativa", "-atualizado_em").first()
+        )
         if not obj:
             return response.Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -123,7 +139,10 @@ class DescricaoBancoViewSet(viewsets.ModelViewSet):
         """
         bank_id = request.query_params.get("bank_id") or request.query_params.get("banco_id")
         if not bank_id:
-            return response.Response({"detail": "Parâmetro bank_id é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+            return response.Response(
+                {"detail": "Parâmetro bank_id é obrigatório."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         qs = self.get_queryset().filter(banco_id=bank_id).order_by("-is_ativa", "-atualizado_em")
         ser = self.get_serializer(qs, many=True)

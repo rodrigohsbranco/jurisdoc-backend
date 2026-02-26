@@ -1,3 +1,4 @@
+# petitions/views.py
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,7 +20,7 @@ from .serializers import PetitionSerializer
 from templates_app.models import Template as DocTemplate
 from templates_app.utils_jinja import extract_jinja_fields, detect_angle_brackets
 
-# 🔥 Import para buscar a descrição ativa
+# Import para buscar a descrição ativa do banco
 from cadastro.models import DescricaoBanco
 
 try:
@@ -40,11 +41,14 @@ class PetitionViewSet(viewsets.ModelViewSet):
       - DELETE /api/petitions/{id}/
       - POST   /api/petitions/{id}/render/
     """
+
     queryset = Petition.objects.all().order_by("-created_at")
     serializer_class = PetitionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
-    # -------------- Helpers --------------
+    # -------------------------------------------------------
+    # Helpers
+    # -------------------------------------------------------
 
     def _get_template_file_path(self, petition: Petition) -> Path:
         """Obtém o caminho do arquivo .docx do Template vinculado à Petition."""
@@ -72,57 +76,71 @@ class PetitionViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-    # ---------- Banco: resolução de descrição ativa ----------
+    # -------------------------------------------------------
+    # Banco: resolução da descrição ativa
+    # -------------------------------------------------------
 
     def _normalize_bank_name(self, name: str) -> str:
-        """
-        Remove sufixos como ' (104)' e espaços extras do nome do banco
-        para comparar com DescricaoBanco.banco_nome.
-        """
+        """Remove sufixos como ' (104)' e espaços extras do nome do banco."""
         import re
         name = (name or "").strip()
-        # remove " (XXXX)" no fim, ex.: "CAIXA ECONOMICA FEDERAL (104)" -> "CAIXA ECONOMICA FEDERAL"
         name = re.sub(r"\s*\(\d{1,6}\)\s*$", "", name)
         return name
 
-    def _get_banco_descricao_ativa(self, conta) -> str | None:
+    def _get_banco_descricao_ativa(self, conta) -> dict | None:
         """
-        Tenta resolver a descrição ativa do banco da conta principal priorizando:
-        1) banco_id (usa conta.banco_codigo)
-        2) banco_nome normalizado (sem sufixo '(104)')
-        Retorna a descrição ativa se achar; caso contrário, None.
+        Retorna um dicionário com os dados da descrição ativa do banco
+        (nome_banco, cnpj, endereco_banco), usando o registro ativo
+        cadastrado em DescricaoBanco.
         """
         if not conta:
             return None
 
-        # 1) Tenta por banco_id (preferível)
-        banco_id = (getattr(conta, "banco_codigo", None) or "").strip()
-        if banco_id:
-            obj = (
-                DescricaoBanco.objects
-                .filter(banco_id=banco_id, is_ativa=True)
-                .order_by("-atualizado_em")
-                .first()
-            )
-            if obj:
-                return obj.descricao
+        banco_codigo = (getattr(conta, "banco_codigo", None) or "").strip()
+        banco_nome = (getattr(conta, "banco_nome", None) or "").strip()
 
-        # 2) Tenta por banco_nome normalizado
-        banco_nome_norm = self._normalize_bank_name(getattr(conta, "banco_nome", "") or "")
-        if banco_nome_norm:
-            obj = (
-                DescricaoBanco.objects
-                .filter(banco_nome=banco_nome_norm, is_ativa=True)
-                .order_by("-atualizado_em")
-                .first()
-            )
-            if obj:
-                return obj.descricao
+        qs = DescricaoBanco.objects.filter(is_ativa=True)
+        if banco_codigo:
+            qs = qs.filter(banco_id=banco_codigo)
+        elif banco_nome:
+            qs = qs.filter(banco_nome=self._normalize_bank_name(banco_nome))
 
-        # nada encontrado
-        return None
+        obj = qs.order_by("-atualizado_em").first()
+        if not obj:
+            return None
 
-    # -------------- Actions --------------
+        return {
+            # usa a descrição personalizada se houver, senão o nome de banco
+            "nome_banco": (obj.nome_banco or obj.banco_nome or banco_nome or "").strip(),
+            "cnpj": (obj.cnpj or "").strip(),
+            "endereco_banco": (obj.endereco or "").strip(),
+        }
+
+    def _format_banco_string(self, desc: dict | None, fallback_nome: str = "") -> str:
+        """
+        Monta uma string única de descrição do banco para o campo legado {{ banco }},
+        no formato: Nome — CNPJ: ... — Endereço
+        """
+        if not desc:
+            return fallback_nome or ""
+
+        parts: list[str] = []
+        nome = (desc.get("nome_banco") or "").strip()
+        cnpj = (desc.get("cnpj") or "").strip()
+        endereco = (desc.get("endereco_banco") or "").strip()
+
+        if nome:
+            parts.append(nome)
+        if cnpj:
+            parts.append(f"CNPJ: {cnpj}")
+        if endereco:
+            parts.append(endereco)
+
+        return " — ".join(parts) or fallback_nome or ""
+
+    # -------------------------------------------------------
+    # Ações
+    # -------------------------------------------------------
 
     @action(detail=True, methods=["post"])
     def render(self, request, pk=None):
@@ -135,33 +153,83 @@ class PetitionViewSet(viewsets.ModelViewSet):
 
         petition = self.get_object()
 
-        # context final = salvo na petition + (override opcional vindo no POST)
         base_ctx = petition.context or {}
         override = request.data.get("context_override") or {}
         if not isinstance(base_ctx, dict) or not isinstance(override, dict):
             return Response({"detail": "Contexto inválido."}, status=status.HTTP_400_BAD_REQUEST)
         context = {**base_ctx, **override}
 
-        # 🔥 Preenche automaticamente o campo "banco" se não estiver no context
-        if "banco" not in context and petition.cliente:
+        # ---------------------------------------------------
+        # Preenche automaticamente dados bancários do cliente
+        # ---------------------------------------------------
+        if petition.cliente:
             conta_principal = petition.cliente.contas.filter(is_principal=True).first()
             desc_ativa = self._get_banco_descricao_ativa(conta_principal)
-            if desc_ativa:
-                context["banco"] = desc_ativa
-            else:
-                # fallback: mantém o comportamento antigo
-                context["banco"] = getattr(conta_principal, "banco_nome", "") or ""
 
+            # Compatibilidade antiga: campo {{ banco }} (string única)
+            if not context.get("banco"):
+                fallback_nome = getattr(conta_principal, "banco_nome", "") or ""
+                context["banco"] = self._format_banco_string(desc_ativa, fallback_nome)
+
+            # Novo formato: variáveis planas
+            if desc_ativa:
+                def is_empty(v):
+                    return v is None or (isinstance(v, str) and not v.strip())
+
+                # Sempre sobrescreve se estiver vazio ou ausente
+                if is_empty(context.get("nome_banco")):
+                    context["nome_banco"] = desc_ativa.get("nome_banco", "")
+                if is_empty(context.get("cnpj")):
+                    context["cnpj"] = desc_ativa.get("cnpj", "")
+                if is_empty(context.get("endereco_banco")):
+                    context["endereco_banco"] = desc_ativa.get("endereco_banco", "")
+
+
+        # ---------------------------------------------------
+        # Integração com contratos (v2)
+        # ---------------------------------------------------
+        from contracts.models import Contrato
+
+        contratos_ids = request.data.get("contratos_ids", [])
+        contratos_qs = Contrato.objects.none()
+
+        if petition.cliente:
+            qs = Contrato.objects.filter(cliente=petition.cliente)
+            if isinstance(contratos_ids, list) and contratos_ids:
+                qs = qs.filter(id__in=contratos_ids)
+
+            contratos_qs = qs.order_by("-data_inclusao").values(
+                "id",
+                "numero_contrato",
+                "banco_nome",
+                "situacao",
+                "origem_averbacao",
+                "data_inclusao",
+                "data_inicio_desconto",
+                "data_fim_desconto",
+                "quantidade_parcelas",
+                "valor_parcela",
+                "iof",
+                "valor_emprestado",
+                "valor_liberado",
+            )
+
+        contratos = list(contratos_qs)
+        context["contratos"] = contratos
+        context["total_contratos"] = len(contratos)
+        context["contratos_ids_utilizados"] = contratos_ids
+
+        # ---------------------------------------------------
+        # Validações e geração do documento
+        # ---------------------------------------------------
         filename = (request.data.get("filename") or f"petition_{petition.pk}").strip() or f"petition_{petition.pk}"
         strict = bool(request.data.get("strict", True))
 
-        # validações de template/context
         try:
             file_path = self._get_template_file_path(petition)
         except DocTemplate.DoesNotExist:
             return Response({"detail": "Template associado não encontrado."}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Bloqueia padrão antigo
         check = self._validate_context_against_template(file_path, context)
         if check["has_angle"]:
             return Response(
@@ -171,7 +239,11 @@ class PetitionViewSet(viewsets.ModelViewSet):
 
         if strict and check["missing"]:
             return Response(
-                {"detail": "Há variáveis ausentes no contexto.", "missing": check["missing"], "required": check["required"]},
+                {
+                    "detail": "Há variáveis ausentes no contexto.",
+                    "missing": check["missing"],
+                    "required": check["required"],
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
