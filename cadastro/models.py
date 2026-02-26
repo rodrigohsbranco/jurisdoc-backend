@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import models
 from django.db.models import Q
 
-from .validators import validate_cpf, validate_cep, validate_uf, only_digits
+from .validators import validate_cpf, validate_cnpj, validate_cep, validate_uf, only_digits
 
 
 # (Opcional) choices simples para estado civil — pode ajustar no futuro no front/back
@@ -42,6 +42,9 @@ class Cliente(models.Model):
     cidade = models.CharField(max_length=120, blank=True)
     cep = models.CharField(max_length=8, blank=True, validators=[validate_cep])
     uf = models.CharField(max_length=2, blank=True, validators=[validate_uf])
+
+    # Status (soft delete)
+    is_active = models.BooleanField(default=True, db_index=True)
 
     # Auditoria
     criado_em = models.DateTimeField(auto_now_add=True)
@@ -191,3 +194,106 @@ class Representante(models.Model):
 
     def __str__(self):
         return f"{self.nome_completo} (rep. de {self.cliente.nome_completo})"
+
+
+# --------------------------------------------------------------------
+# Bancos dos Réus (Clientes como Réus)
+# --------------------------------------------------------------------
+class ContaBancariaReu(models.Model):
+    """
+    Banco do réu.
+    Armazena informações do banco: nome, CNPJ e endereço.
+    Não está mais atrelado a um cliente específico.
+    """
+    banco_nome = models.CharField(max_length=100)               # Ex.: "Banco do Brasil"
+    banco_codigo = models.CharField(max_length=5, blank=True)   # Ex.: "001" (COMPE/ISPB curta)
+    cnpj = models.CharField(max_length=14, unique=True, validators=[validate_cnpj])  # CNPJ do banco (único)
+    descricao = models.TextField(blank=True)                   # Descrição do banco
+    
+    # Endereço do banco
+    logradouro = models.CharField(max_length=120, blank=True)
+    numero = models.CharField(max_length=20, blank=True)
+    bairro = models.CharField(max_length=120, blank=True)
+    cidade = models.CharField(max_length=120, blank=True)
+    estado = models.CharField(max_length=2, blank=True, validators=[validate_uf])  # UF do estado
+    cep = models.CharField(max_length=8, blank=True, validators=[validate_cep])
+
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Banco do Réu"
+        verbose_name_plural = "Bancos dos Réus"
+        ordering = ["banco_nome"]
+
+    def clean(self):
+        self.cnpj = only_digits(self.cnpj)
+        self.cep = only_digits(self.cep)
+        self.estado = (self.estado or "").upper()
+
+    def __str__(self):
+        return f"{self.banco_nome} - CNPJ: {self.cnpj}"
+
+
+# --------------------------------------------------------------------
+# Contratos
+# --------------------------------------------------------------------
+class Contrato(models.Model):
+    """
+    Contrato vinculado a um Cliente e Template.
+    - O campo 'contratos' armazena um array JSONB com os dados de cada contrato.
+    - Pode haver múltiplos contratos no array.
+    - Cada item do array pode conter:
+      * numero_do_contrato: string
+      * banco_do_contrato: string
+      * situacao: string
+      * origem_averbacao: string
+      * data_inclusao: string (date)
+      * data_inicio_desconto: string (date)
+      * data_fim_desconto: string (date)
+      * quantidade_parcelas: number
+      * valor_parcela: number
+      * iof: number
+      * valor_emprestado: number
+      * valor_liberado: number
+    """
+    cliente = models.ForeignKey(
+        Cliente,
+        on_delete=models.PROTECT,  # Não permite deletar cliente se tiver contratos
+        related_name="contratos"
+    )
+    template = models.ForeignKey(
+        "templates_app.Template",  # Importação lazy para evitar dependência circular
+        on_delete=models.PROTECT,  # Não permite deletar template se tiver contratos
+        related_name="contratos"
+    )
+    contratos = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Array JSONB com os dados de cada contrato"
+    )
+    verifica_documento = models.JSONField(
+        default=dict,
+        blank=True,
+        null=True,
+        help_text="JSONB com todos os dados do formulário de verificação do documento"
+    )
+    imagem_do_contrato = models.ImageField(
+        upload_to="contratos/",
+        null=True,
+        blank=True,
+        help_text="Imagem do contrato"
+    )
+
+    # Auditoria
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Contrato"
+        verbose_name_plural = "Contratos"
+        ordering = ["-criado_em"]
+
+    def __str__(self):
+        num_contratos = len(self.contratos) if isinstance(self.contratos, list) else 0
+        return f"Contrato #{self.id} - {self.cliente.nome_completo} ({num_contratos} contrato(s))"

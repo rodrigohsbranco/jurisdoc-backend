@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.db import transaction
 
-from .models import Cliente, ContaBancaria, DescricaoBanco, Representante
+from .models import Cliente, ContaBancaria, ContaBancariaReu, DescricaoBanco, Representante
 
 
 # =========================
@@ -217,3 +217,24 @@ class RepresentanteAdmin(admin.ModelAdmin):
             ])
             atualizados += 1
         self.message_user(request, f"Endereço copiado para {atualizados} representante(s).")
+
+
+# =========================
+# Conta Bancária do Réu
+# =========================
+@admin.register(ContaBancariaReu)
+class ContaBancariaReuAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "banco_nome",
+        "banco_codigo",
+        "cnpj",
+        "descricao",
+        "cidade",
+        "estado",
+        "criado_em",
+    )
+    search_fields = ("banco_nome", "banco_codigo", "cnpj", "cidade", "descricao")
+    list_filter = ("banco_nome", "banco_codigo", "estado")
+    list_per_page = 50
+    readonly_fields = ("criado_em", "atualizado_em")

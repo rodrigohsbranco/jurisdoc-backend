@@ -2,7 +2,7 @@
 from rest_framework import viewsets, permissions, filters, decorators, response, status
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import Cliente, ContaBancaria, DescricaoBanco, Representante
+from .models import Cliente, ContaBancaria, ContaBancariaReu, DescricaoBanco, Representante, Contrato
 from .filters import ClienteFilter, ContaBancariaFilter, DescricaoBancoFilter
 
 
@@ -14,7 +14,7 @@ class IsAdmin(permissions.BasePermission):
 
 
 class ClienteViewSet(viewsets.ModelViewSet):
-    queryset = Cliente.objects.all().order_by("nome_completo")
+    queryset = Cliente.objects.filter(is_active=True).order_by("nome_completo")
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = None  # setado no get_serializer_class
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -37,9 +37,50 @@ class ClienteViewSet(viewsets.ModelViewSet):
         "bairro",
     ]
 
+    def get_queryset(self):
+        """
+        Retorna apenas clientes ativos por padrão.
+        Para ver inativos, use ?is_active=false na query.
+        Para ver todos, use ?is_active= (vazio) ou não passe o parâmetro e use o filtro manualmente.
+        """
+        qs = Cliente.objects.all().order_by("nome_completo")
+        is_active_param = self.request.query_params.get("is_active")
+        
+        # Se não foi especificado, filtra apenas ativos por padrão
+        if is_active_param is None:
+            qs = qs.filter(is_active=True)
+        
+        # Se foi especificado, o django-filters vai aplicar o filtro
+        return qs
+
     def get_serializer_class(self):
         from .serializers import ClienteSerializer
         return ClienteSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Soft delete: marca o cliente como inativo ao invés de deletar.
+        """
+        instance = self.get_object()
+        instance.is_active = False
+        instance.save()
+        return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @decorators.action(detail=True, methods=["post"], url_path="restore")
+    def restore(self, request, pk=None):
+        """
+        Restaura um cliente inativo (marca como ativo novamente).
+        """
+        instance = self.get_object()
+        if instance.is_active:
+            return response.Response(
+                {"detail": "Este cliente já está ativo."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        instance.is_active = True
+        instance.save()
+        ser = self.get_serializer(instance)
+        return response.Response(ser.data, status=status.HTTP_200_OK)
 
 
 class ContaBancariaViewSet(viewsets.ModelViewSet):
@@ -206,3 +247,55 @@ class RepresentanteViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         from .serializers import RepresentanteSerializer
         return RepresentanteSerializer
+
+
+# --------------------------------------------------------------------
+# Contas Bancárias dos Réus
+# --------------------------------------------------------------------
+class ContaBancariaReuViewSet(viewsets.ModelViewSet):
+    """
+    CRUD de Contas Bancárias dos Réus.
+    Bancos dos réus não estão mais atrelados a clientes específicos.
+    """
+    queryset = (
+        ContaBancariaReu.objects.all()
+        .order_by("banco_nome")
+    )
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = None
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ["banco_nome", "banco_codigo", "cidade", "estado"]
+    search_fields = ["banco_nome", "cnpj", "cidade"]
+    ordering_fields = ["banco_nome", "criado_em"]
+
+    def get_serializer_class(self):
+        from .serializers import ContaBancariaReuSerializer
+        return ContaBancariaReuSerializer
+
+
+# --------------------------------------------------------------------
+# Contratos
+# --------------------------------------------------------------------
+class ContratoViewSet(viewsets.ModelViewSet):
+    """
+    CRUD de Contratos.
+    - Cada contrato possui um cliente, template e um array JSONB de contratos.
+    - Permite criar e deletar quantas vezes quiser.
+    - Não usa CASCADE: ao deletar o contrato, não afeta cliente ou template.
+    """
+    queryset = (
+        Contrato.objects.select_related("cliente", "template")
+        .all()
+        .order_by("-criado_em")
+    )
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = None
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ["cliente", "template"]
+    search_fields = ["cliente__nome_completo", "template__name"]
+    ordering_fields = ["criado_em", "atualizado_em", "cliente__nome_completo"]
+
+    def get_serializer_class(self):
+        from .serializers import ContratoSerializer
+        return ContratoSerializer
+

@@ -66,8 +66,8 @@ class UserSerializer(serializers.ModelSerializer):
 
 class TokenObtainPairWithUserSerializer(TokenObtainPairSerializer):
     """
-    Opcional: use este serializer no login para retornar {access, refresh, user}.
-    Lembre de apontar a rota de login para uma view que use este serializer.
+    Serializer customizado que retorna {accessToken, refreshToken, user}
+    em vez do padrão {access, refresh, user}.
     """
     @classmethod
     def get_token(cls, user):
@@ -79,8 +79,12 @@ class TokenObtainPairWithUserSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
-        data["user"] = UserSerializer(self.user).data
-        return data
+        # Renomeia 'access' para 'accessToken' e 'refresh' para 'refreshToken'
+        return {
+            "accessToken": data["access"],
+            "refreshToken": data["refresh"],
+            "user": UserSerializer(self.user).data,
+        }
 
 
 class ChangePasswordSerializer(serializers.Serializer):

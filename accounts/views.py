@@ -4,7 +4,7 @@ from rest_framework import viewsets, filters, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .serializers import UserSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .serializers import TokenObtainPairWithUserSerializer
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -20,6 +20,15 @@ class MeView(APIView):
 
 class LoginView(TokenObtainPairView):
     serializer_class = TokenObtainPairWithUserSerializer
+
+
+class RefreshView(TokenRefreshView):
+    """View customizada que retorna accessToken em vez de access."""
+    def post(self, request, *args, **kwargs):
+        response = super().post(request, *args, **kwargs)
+        if response.status_code == 200 and "access" in response.data:
+            response.data["accessToken"] = response.data.pop("access")
+        return response
 
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]

@@ -3,6 +3,7 @@ from typing import Optional
 
 from django.core.exceptions import ValidationError
 from stdnum.br import cpf as cpfmod
+from stdnum.br import cnpj as cnpjmod
 
 # Conjunto de UFs válidas
 UF_LIST = {
@@ -30,6 +31,16 @@ def validate_cpf(value: str) -> None:
     digits = only_digits(value)
     if not cpfmod.is_valid(digits):
         raise ValidationError("CPF inválido.")
+
+
+def validate_cnpj(value: str) -> None:
+    """
+    Valida CNPJ (com ou sem máscara). Lança ValidationError se inválido.
+    Normalização (remover máscara) fica a cargo de serializers/models.
+    """
+    digits = only_digits(value)
+    if not cnpjmod.is_valid(digits):
+        raise ValidationError("CNPJ inválido.")
 
 
 def validate_cep(value: str) -> None:

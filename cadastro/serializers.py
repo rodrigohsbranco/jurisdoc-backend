@@ -2,8 +2,8 @@ from django.db import transaction
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
-from .models import Cliente, ContaBancaria, DescricaoBanco, Representante
-from .validators import only_digits, validate_cpf, validate_cep, validate_uf, validate_banco_id
+from .models import Cliente, ContaBancaria, ContaBancariaReu, DescricaoBanco, Representante, Contrato
+from .validators import only_digits, validate_cpf, validate_cnpj, validate_cep, validate_uf, validate_banco_id
 
 
 # =========================
@@ -35,11 +35,16 @@ class ClienteSerializer(serializers.ModelSerializer):
             "cidade",
             "cep",
             "uf",
+            # Status
+            "is_active",
             # Auditoria
             "criado_em",
             "atualizado_em",
         ]
         read_only_fields = ["criado_em", "atualizado_em"]
+        extra_kwargs = {
+            "cpf": {"validators": []}  # Remove validadores padrão de unicidade
+        }
 
     # Normalizações/validações
     def validate_cpf(self, v):
@@ -58,6 +63,73 @@ class ClienteSerializer(serializers.ModelSerializer):
         if v:
             validate_uf(v)
         return v
+
+    def validate(self, attrs):
+        """
+        Validação customizada: permite CPF duplicado se o cliente estiver inativo.
+        Valida manualmente a unicidade do CPF (já que removemos os validadores padrão).
+        """
+        # Só valida se estamos criando (não editando)
+        if not self.instance:
+            cpf = attrs.get("cpf")
+            if cpf:
+                cpf_normalizado = only_digits(cpf)
+                # Verifica se já existe cliente com este CPF
+                cliente_existente = Cliente.objects.filter(cpf=cpf_normalizado).first()
+                if cliente_existente:
+                    if cliente_existente.is_active:
+                        # Se está ativo, não permite duplicar
+                        raise ValidationError(
+                            {"cpf": ["Já existe um cliente ativo com este CPF."]}
+                        )
+                    # Se está inativo, não levanta erro aqui (será tratado no create)
+        return attrs
+
+    def create(self, validated_data):
+        """
+        Cria um novo cliente ou restaura um cliente inativo com o mesmo CPF.
+        - Se o CPF não existe: cria normalmente
+        - Se o CPF existe e está ativo: retorna erro
+        - Se o CPF existe e está inativo: atualiza com os novos dados e ativa
+        (retorna como se fosse um novo cadastro, sem indicar que já existia)
+        """
+        cpf = validated_data.get("cpf")
+        cpf_normalizado = only_digits(cpf) if cpf else None
+
+        if cpf_normalizado:
+            # Busca cliente existente com este CPF (ativo ou inativo)
+            cliente_existente = Cliente.objects.filter(cpf=cpf_normalizado).first()
+
+            if cliente_existente:
+                if cliente_existente.is_active:
+                    # Cliente ativo já existe com este CPF
+                    raise ValidationError(
+                        {"cpf": ["Já existe um cliente ativo com este CPF."]}
+                    )
+                else:
+                    # Cliente inativo encontrado: atualiza e ativa
+                    # Remove campos que não devem ser atualizados diretamente
+                    validated_data.pop("id", None)
+                    validated_data.pop("criado_em", None)
+                    validated_data.pop("atualizado_em", None)
+                    
+                    # Atualiza o cliente existente com os novos dados
+                    for attr, value in validated_data.items():
+                        if hasattr(cliente_existente, attr) and attr not in ["id", "criado_em", "atualizado_em"]:
+                            setattr(cliente_existente, attr, value)
+                    
+                    # Ativa o cliente
+                    cliente_existente.is_active = True
+                    
+                    # Salva o cliente (update_fields não é necessário aqui pois estamos atualizando o mesmo registro)
+                    # O Django não valida unicidade do CPF ao atualizar o mesmo registro
+                    cliente_existente.save()
+                    
+                    # Retorna o cliente restaurado (como se fosse um novo cadastro)
+                    return cliente_existente
+
+        # CPF não existe ou não foi fornecido: cria novo cliente
+        return super().create(validated_data)
 
 
 # =========================
@@ -241,6 +313,54 @@ class DescricaoBancoSerializer(serializers.ModelSerializer):
 
 
 # =========================
+# Conta Bancária do Réu
+# =========================
+class ContaBancariaReuSerializer(serializers.ModelSerializer):
+    """
+    Serializer para bancos dos réus.
+    Armazena informações do banco: nome, CNPJ e endereço.
+    """
+    class Meta:
+        model = ContaBancariaReu
+        fields = [
+            "id",
+            "banco_nome",
+            "banco_codigo",
+            "cnpj",
+            "descricao",
+            # Endereço
+            "logradouro",
+            "numero",
+            "bairro",
+            "cidade",
+            "estado",
+            "cep",
+            # Auditoria
+            "criado_em",
+            "atualizado_em",
+        ]
+        read_only_fields = ["criado_em", "atualizado_em"]
+
+    # Normalizações
+    def validate_cnpj(self, v):
+        v = only_digits(v)
+        validate_cnpj(v)
+        return v
+
+    def validate_cep(self, v):
+        v = only_digits(v or "")
+        if v:
+            validate_cep(v)
+        return v
+
+    def validate_estado(self, v):
+        v = (v or "").upper()
+        if v:
+            validate_uf(v)
+        return v
+
+
+# =========================
 # Representante
 # =========================
 class RepresentanteSerializer(serializers.ModelSerializer):
@@ -342,3 +462,56 @@ class RepresentanteSerializer(serializers.ModelSerializer):
         obj = super().update(instance, validated_data)
         self._copy_client_address_if_needed(obj)
         return obj
+
+
+# =========================
+# Contrato
+# =========================
+class ContratoSerializer(serializers.ModelSerializer):
+    cliente_nome = serializers.CharField(source="cliente.nome_completo", read_only=True)
+    template_nome = serializers.CharField(source="template.name", read_only=True)
+
+    class Meta:
+        model = Contrato
+        fields = [
+            "id",
+            "cliente",
+            "cliente_nome",
+            "template",
+            "template_nome",
+            "contratos",
+            "verifica_documento",
+            "imagem_do_contrato",
+            "criado_em",
+            "atualizado_em",
+        ]
+        read_only_fields = ["criado_em", "atualizado_em"]
+
+    def validate_contratos(self, value):
+        """
+        Valida que contratos é uma lista e que cada item tem a estrutura esperada.
+        Campos esperados em cada item:
+        - numero_do_contrato: string (opcional)
+        - banco_do_contrato: string (opcional)
+        - situacao: string (opcional)
+        - origem_averbacao: string (opcional)
+        - data_inclusao: string (opcional)
+        - data_inicio_desconto: string (opcional)
+        - data_fim_desconto: string (opcional)
+        - quantidade_parcelas: number (opcional)
+        - valor_parcela: number (opcional)
+        - iof: number (opcional)
+        - valor_emprestado: number (opcional)
+        - valor_liberado: number (opcional)
+        """
+        if not isinstance(value, list):
+            raise ValidationError("O campo 'contratos' deve ser uma lista.")
+        
+        # Valida que cada item é um dicionário (objeto)
+        for idx, item in enumerate(value):
+            if not isinstance(item, dict):
+                raise ValidationError(
+                    f"O item {idx} do array 'contratos' deve ser um objeto (dicionário)."
+                )
+        
+        return value
