@@ -18,4 +18,7 @@ COPY . .
 RUN python manage.py collectstatic --noinput
 
 EXPOSE 8000
-CMD ["gunicorn", "-b", "0.0.0.0:8000", "jurisdoc.wsgi:application"]
+CMD ["gunicorn", "--workers", "2", "-b", "0.0.0.0:8000", "--log-level", "debug", \
+"--access-logfile", "-", \
+"--error-logfile", "-", \
+"--capture-output", "jurisdoc.wsgi:application"]
