@@ -1,8 +1,15 @@
 import os
+import warnings
 from pathlib import Path
 from datetime import timedelta
 from dotenv import load_dotenv
 
+# Suprime aviso de depreciação do pkg_resources (usado por docxcompose)
+warnings.filterwarnings(
+    "ignore",
+    message="pkg_resources is deprecated",
+    category=UserWarning,
+)
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -161,3 +168,21 @@ CORS_ALLOW_ALL_ORIGINS = True
 
 # Usuário customizado
 AUTH_USER_MODEL = "accounts.User"
+
+# Log de erros 500 no console (Gunicorn/EasyPanel) para ver traceback com DEBUG=0
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "loggers": {
+        "django.request": {
+            "handlers": ["console"],
+            "level": "ERROR",
+            "propagate": False,
+        },
+    },
+}
