@@ -107,7 +107,7 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"  # útil se você decidir servir estáticos em prod
 MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"
+MEDIA_ROOT = os.getenv("MEDIA_ROOT", str(BASE_DIR / "media"))
 
 # WhiteNoise: compressão e hash de arquivo para cache busting
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
