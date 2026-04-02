@@ -12,7 +12,4 @@ services:
       - MEDIA_ROOT=/media_data
     volumes:
       - /local_do_arquivo:/app
-      - media_data:/media_data
-
-volumes:
-  media_data:
+      - /media_data:/media_data
