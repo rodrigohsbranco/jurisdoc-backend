@@ -13,7 +13,7 @@ from common.jinja_env import build_env
 
 from .models import Template
 from .serializers import TemplateSerializer
-from .utils_jinja import extract_jinja_fields, detect_angle_brackets, find_invalid_jinja_prints
+from .utils_jinja import analyze_jinja_docx
 
 # Import extra
 from cadastro.models import Cliente, DescricaoBanco
@@ -42,19 +42,83 @@ class TemplateViewSet(viewsets.ModelViewSet):
     serializer_class = TemplateSerializer
     permission_classes = [permissions.IsAuthenticated]
 
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        # Se um novo arquivo foi enviado, exclui o anterior do disco
+        if 'file' in serializer.validated_data and instance.file:
+            old_file = instance.file
+            if old_file.name and old_file.storage.exists(old_file.name):
+                old_file.storage.delete(old_file.name)
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # Exclui o arquivo do disco ao deletar o template
+        if instance.file and instance.file.name:
+            if instance.file.storage.exists(instance.file.name):
+                instance.file.storage.delete(instance.file.name)
+        instance.delete()
+
+    @action(detail=False, methods=["post"])
+    def compose(self, request):
+        """Combina múltiplos .docx em um único documento com quebra de página entre cada."""
+        files = request.FILES.getlist("files")
+        if not files or len(files) < 2:
+            return Response(
+                {"detail": "Envie pelo menos 2 arquivos .docx."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            from docx import Document
+            from docx.oxml.ns import qn
+            from docx.oxml import OxmlElement
+            import copy
+
+            master = Document(files[0])
+            master_body = master.element.body
+
+            for f in files[1:]:
+                # Adiciona quebra de página
+                page_break_para = OxmlElement('w:p')
+                run_elem = OxmlElement('w:r')
+                br = OxmlElement('w:br')
+                br.set(qn('w:type'), 'page')
+                run_elem.append(br)
+                page_break_para.append(run_elem)
+                master_body.append(page_break_para)
+
+                # Copia TODOS os elementos do body (parágrafos + tabelas) na ordem original
+                doc = Document(f)
+                for child in doc.element.body:
+                    tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                    if tag in ('p', 'tbl'):
+                        master_body.append(copy.deepcopy(child))
+
+            buf = BytesIO()
+            master.save(buf)
+            buf.seek(0)
+
+            response = HttpResponse(
+                buf.getvalue(),
+                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+            response["Content-Disposition"] = 'attachment; filename="composed.docx"'
+            return response
+        except Exception as e:
+            return Response(
+                {"detail": f"Erro ao compor documentos: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
     @action(detail=True, methods=["get"])
     def fields(self, request, pk=None):
         tpl = self.get_object()
         file_path = Path(tpl.file.path)
-
-        syntax, fields = extract_jinja_fields(file_path)
-        has_angle = detect_angle_brackets(file_path)
-        invalid = find_invalid_jinja_prints(file_path)
+        info = analyze_jinja_docx(file_path)
 
         return Response({
-            "syntax": ("jinja (mixed: angle present)" if has_angle else syntax),
-            "fields": fields,
-            "invalid_prints": invalid,
+            "syntax": ("jinja (mixed: angle present)" if info["has_angle"] else info["syntax"]),
+            "fields": info["fields"],
+            "invalid_prints": info["invalid_prints"],
         })
 
     @action(detail=True, methods=["post"])
@@ -69,14 +133,15 @@ class TemplateViewSet(viewsets.ModelViewSet):
         file_path = Path(tpl.file.path)
 
         # Bloqueia padrão antigo
-        if detect_angle_brackets(file_path):
+        info = analyze_jinja_docx(file_path)
+        if info["has_angle"]:
             return Response(
                 {"detail": "Este template usa '<< >>'. Atualize para Jinja {{ }} antes de renderizar."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         # Valida sintaxe das variáveis Jinja antes de tentar renderizar
-        invalid_prints = find_invalid_jinja_prints(file_path)
+        invalid_prints = info["invalid_prints"]
         if invalid_prints:
             return Response(
                 {
@@ -103,7 +168,11 @@ class TemplateViewSet(viewsets.ModelViewSet):
                         is_ativa=True
                     ).order_by("-atualizado_em").first()
 
-                    context.setdefault("banco", desc.descricao if desc else conta_principal.banco_nome)
+                    if desc:
+                        banco_parts = [p for p in [desc.nome_banco or desc.banco_nome, desc.cnpj, desc.endereco] if p]
+                        context.setdefault("banco", " - ".join(banco_parts) if banco_parts else conta_principal.banco_nome)
+                    else:
+                        context.setdefault("banco", conta_principal.banco_nome)
 
                     # Também podemos preencher outros campos básicos do cliente
                     context.setdefault("nome_completo", cliente.nome_completo)

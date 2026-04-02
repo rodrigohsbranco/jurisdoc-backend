@@ -14,6 +14,7 @@ urlpatterns = [
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
     path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema")),
     path("api/reports/", include("reports.urls")),
-    # 👉 nova rota:
+    path("api/kits/", include("kits.urls")),
+    path("api/advogados/", include("advogados.urls")),
     path("api/", include("contracts.urls")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

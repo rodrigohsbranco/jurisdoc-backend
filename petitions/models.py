@@ -29,6 +29,12 @@ class Petition(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["created_at"], name="pet_created_at_idx"),
+            models.Index(fields=["updated_at"], name="pet_updated_at_idx"),
+            models.Index(fields=["cliente", "-created_at"], name="pet_cliente_created_idx"),
+            models.Index(fields=["template", "-created_at"], name="pet_template_created_idx"),
+        ]
 
     def __str__(self):
         return f"Petition {self.id} - {self.template.name} ({self.cliente.nome_completo})"

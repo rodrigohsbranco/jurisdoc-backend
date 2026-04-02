@@ -43,6 +43,54 @@ class Cliente(models.Model):
     cep = models.CharField(max_length=8, blank=True, validators=[validate_cep])
     uf = models.CharField(max_length=2, blank=True, validators=[validate_uf])
 
+    # Dados para Kit
+    CONDICAO_CHOICES = [
+        ("alfabetizado", "Alfabetizado"),
+        ("analfabeto", "Analfabeto"),
+        ("incapaz", "Incapaz"),
+        ("crianca_adolescente", "Criança/Adolescente"),
+    ]
+    condicao_cliente = models.CharField(max_length=25, choices=CONDICAO_CHOICES, default="alfabetizado", blank=True)
+
+    # Assinatura a rogo (analfabeto)
+    rogado_nome = models.CharField(max_length=200, blank=True)
+    rogado_cpf = models.CharField(max_length=11, blank=True)
+    testemunha1_nome = models.CharField(max_length=200, blank=True)
+    testemunha1_cpf = models.CharField(max_length=11, blank=True)
+    testemunha2_nome = models.CharField(max_length=200, blank=True)
+    testemunha2_cpf = models.CharField(max_length=11, blank=True)
+
+    # Responsável legal (incapaz / criança)
+    responsavel_legal_nome = models.CharField(max_length=200, blank=True)
+    responsavel_legal_cpf = models.CharField(max_length=11, blank=True)
+
+    # Declaração de hipossuficiência
+    possui_imoveis = models.BooleanField(null=True, blank=True, default=None)
+    possui_moveis = models.BooleanField(null=True, blank=True, default=None)
+    isento_irpf = models.BooleanField(null=True, blank=True, default=None)
+
+    # Comprovante de residência
+    comprovante_residencia = models.FileField(upload_to="clientes/comprovantes/", blank=True)
+    comprovante_nome_cliente = models.CharField(max_length=3, blank=True)  # sim/nao
+    responsavel_imovel_nome = models.CharField(max_length=200, blank=True)
+    responsavel_imovel_cpf = models.CharField(max_length=11, blank=True)
+    responsavel_imovel_doc = models.FileField(upload_to="clientes/comprovantes/", blank=True)
+
+    # Contato
+    telefone = models.CharField(max_length=20, blank=True)
+    titular_contato = models.CharField(max_length=3, blank=True)  # sim/nao
+    nome_titular_numero = models.CharField(max_length=200, blank=True)
+    relacao_titular_tipo = models.CharField(max_length=20, blank=True)  # pai_mae/filho_a/irmao_a/conjuge/outro
+    relacao_titular = models.CharField(max_length=100, blank=True)  # quando tipo='outro'
+    genero = models.CharField(max_length=15, blank=True)  # masculino/feminino
+
+    # Benefícios (INSS, etc.)
+    beneficios = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Array JSON de benefícios. Cada item: {numero: string, tipo: string}"
+    )
+
     # Status (soft delete)
     is_active = models.BooleanField(default=True, db_index=True)
 
@@ -128,6 +176,10 @@ class DescricaoBanco(models.Model):
         verbose_name = "Descrição de Banco"
         verbose_name_plural = "Descrições de Bancos"
         ordering = ["banco_nome", "-is_ativa", "-atualizado_em"]
+        indexes = [
+            models.Index(fields=["banco_id", "is_ativa", "-atualizado_em"], name="cad_desc_bid_act_upd_idx"),
+            models.Index(fields=["banco_nome", "is_ativa", "-atualizado_em"], name="cad_desc_bname_act_upd_idx"),
+        ]
 
     def __str__(self):
         return f"{self.banco_nome} - {self.nome_banco} ({'ATIVA' if self.is_ativa else 'Inativa'})"
@@ -260,7 +312,7 @@ class Contrato(models.Model):
     cliente = models.ForeignKey(
         Cliente,
         on_delete=models.PROTECT,  # Não permite deletar cliente se tiver contratos
-        related_name="contratos"
+        related_name="contratos_cadastro",
     )
     template = models.ForeignKey(
         "templates_app.Template",  # Importação lazy para evitar dependência circular

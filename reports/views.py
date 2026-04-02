@@ -4,7 +4,7 @@ from typing import List
 
 from django.db.models import Count, Q
 from django.db.models.functions import TruncDay, TruncWeek, TruncMonth
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
@@ -251,29 +251,6 @@ class ExportPetitionsCSVView(APIView):
         if cliente_id:
             qs = qs.filter(cliente_id=cliente_id)
 
-        # ---------- CSV amigável p/ Excel (pt-BR) ----------
-        import csv
-        import io
-
-        # Buffer com \n coerente; escrevemos BOM manualmente
-        buffer = io.StringIO(newline='')
-        # Instrução p/ Excel: use ';' como separador
-        buffer.write('sep=;\n')
-
-        writer = csv.writer(
-            buffer,
-            delimiter=';',           # Excel PT-BR ama ';'
-            quoting=csv.QUOTE_MINIMAL,
-            lineterminator='\n',
-        )
-
-        # Cabeçalho legível
-        writer.writerow([
-            'ID', 'Cliente ID', 'Cliente',
-            'Template ID', 'Template',
-            'Criada em', 'Atualizada em',
-        ])
-
         def fmt_dt(dt):
             if not dt:
                 return ''
@@ -281,25 +258,54 @@ class ExportPetitionsCSVView(APIView):
             local = timezone.localtime(dt, timezone.get_current_timezone())
             return local.strftime('%d/%m/%Y %H:%M:%S')
 
-        for p in qs.order_by('-created_at'):
-            writer.writerow([
-                p.id,
-                p.cliente_id or '',
-                getattr(p.cliente, 'nome_completo', '') if p.cliente_id else '',
-                p.template_id or '',
-                getattr(p.template, 'name', '') if p.template_id else '',
-                fmt_dt(p.created_at),
-                fmt_dt(p.updated_at),
-            ])
+        def csv_rows():
+            import csv
+            import io
 
-        # Monta resposta com BOM + CSV
-        csv_text = buffer.getvalue()
-        content = '\ufeff' + csv_text  # BOM UTF-8
+            # BOM UTF-8 para compatibilidade com Excel
+            yield "\ufeff"
+
+            buffer = io.StringIO(newline="")
+            writer = csv.writer(
+                buffer,
+                delimiter=";",
+                quoting=csv.QUOTE_MINIMAL,
+                lineterminator="\n",
+            )
+
+            # Instrução p/ Excel: use ';' como separador
+            buffer.write("sep=;\n")
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
+
+            writer.writerow([
+                "ID", "Cliente ID", "Cliente",
+                "Template ID", "Template",
+                "Criada em", "Atualizada em",
+            ])
+            yield buffer.getvalue()
+            buffer.seek(0)
+            buffer.truncate(0)
+
+            for p in qs.order_by("-created_at").iterator(chunk_size=2000):
+                writer.writerow([
+                    p.id,
+                    p.cliente_id or "",
+                    getattr(p.cliente, "nome_completo", "") if p.cliente_id else "",
+                    p.template_id or "",
+                    getattr(p.template, "name", "") if p.template_id else "",
+                    fmt_dt(p.created_at),
+                    fmt_dt(p.updated_at),
+                ])
+                yield buffer.getvalue()
+                buffer.seek(0)
+                buffer.truncate(0)
+
         filename = "peticoes.csv"
         if d_from and d_to:
             filename = f"peticoes_{d_from.strftime('%Y%m%d')}-{d_to.strftime('%Y%m%d')}.csv"
 
-        resp = HttpResponse(content, content_type='text/csv; charset=utf-8')
-        resp['Content-Disposition'] = f'attachment; filename="{filename}"'
+        resp = StreamingHttpResponse(csv_rows(), content_type="text/csv; charset=utf-8")
+        resp["Content-Disposition"] = f'attachment; filename="{filename}"'
         return resp
-

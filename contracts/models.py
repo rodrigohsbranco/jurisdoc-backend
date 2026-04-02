@@ -30,7 +30,7 @@ class Contrato(models.Model):
     cliente = models.ForeignKey(
         Cliente,
         on_delete=models.CASCADE,
-        related_name="contratos",
+        related_name="contratos_contracts",
     )
 
     # Identificação
@@ -117,6 +117,7 @@ class Contrato(models.Model):
         ordering = ["-criado_em", "cliente", "numero_contrato"]
         indexes = [
             models.Index(fields=["cliente", "numero_contrato"]),
+            models.Index(fields=["cliente", "-data_inclusao"], name="cont_cli_datainc_desc_idx"),
         ]
         constraints = [
             # não é UNIQUE duro porque pode haver recontratação mesmo número,

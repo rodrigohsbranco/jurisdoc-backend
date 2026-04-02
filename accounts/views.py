@@ -5,6 +5,8 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .serializers import UserSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
 from .serializers import TokenObtainPairWithUserSerializer
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -29,6 +31,21 @@ class RefreshView(TokenRefreshView):
         if response.status_code == 200 and "access" in response.data:
             response.data["accessToken"] = response.data.pop("access")
         return response
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        refresh = request.data.get("refresh")
+        if not refresh:
+            return Response({"detail": "refresh token é obrigatório."}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            token = RefreshToken(refresh)
+            token.blacklist()
+        except TokenError:
+            pass  # token já expirado ou inválido — tudo bem, sessão encerrada
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class ChangePasswordView(APIView):
     permission_classes = [IsAuthenticated]

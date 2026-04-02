@@ -18,7 +18,7 @@ from .serializers import PetitionSerializer
 
 # Template (arquivo .docx) vem do app templates_app
 from templates_app.models import Template as DocTemplate
-from templates_app.utils_jinja import extract_jinja_fields, detect_angle_brackets
+from templates_app.utils_jinja import analyze_jinja_docx
 
 # Import para buscar a descrição ativa do banco
 from cadastro.models import DescricaoBanco
@@ -42,7 +42,7 @@ class PetitionViewSet(viewsets.ModelViewSet):
       - POST   /api/petitions/{id}/render/
     """
 
-    queryset = Petition.objects.all().order_by("-created_at")
+    queryset = Petition.objects.select_related("cliente", "template").order_by("-created_at")
     serializer_class = PetitionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -60,17 +60,16 @@ class PetitionViewSet(viewsets.ModelViewSet):
 
     def _validate_context_against_template(self, file_path: Path, context: dict) -> dict:
         """Valida o 'context' da petition com base nos campos detectados no template (.docx)."""
-        syntax, fields = extract_jinja_fields(file_path)
-        required = [f["name"] for f in fields] if fields else []
+        info = analyze_jinja_docx(file_path)
+        required = [f["name"] for f in info["fields"]] if info["fields"] else []
         provided = set(context.keys()) if isinstance(context, dict) else set()
         missing = [f for f in required if f not in provided]
-        has_angle = detect_angle_brackets(file_path)
 
         return {
-            "syntax": syntax,
+            "syntax": info["syntax"],
             "required": required,
             "missing": missing,
-            "has_angle": has_angle,
+            "has_angle": info["has_angle"],
         }
 
     def perform_create(self, serializer):

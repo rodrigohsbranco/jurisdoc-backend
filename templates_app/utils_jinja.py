@@ -15,7 +15,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 from zipfile import ZipFile
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Any
 
 # {{ variavel }} ou {{ cliente.nome }}
 JINJA_VAR_RE   = re.compile(r"{{\s*([a-zA-Z_][\w\.]*)\s*}}")
@@ -55,6 +55,33 @@ def _read_xml_from_docx(docx_path: Path) -> str:
         return "\n".join(parts)
 
 
+def _extract_from_text(txt: str) -> Dict[str, Any]:
+    vars_ = sorted({m.group(1) for m in JINJA_VAR_RE.finditer(txt)})
+    fields = []
+    for v in vars_:
+        name = _snake_case(v)
+        ftype = "string"
+        if name == "banco":
+            ftype = "string"
+        fields.append({"raw": v, "name": name, "type": ftype})
+
+    syntax = "jinja" if fields or JINJA_BLOCK_RE.search(txt) else "unknown"
+    has_angle = bool(ANGLE_TAG_RE.search(txt))
+
+    bad: List[str] = []
+    for m in PRINT_ANY_RE.finditer(txt):
+        inner = m.group(1).strip()
+        if not _ALLOWED_EXPR_RE.match(inner):
+            bad.append(inner)
+
+    return {
+        "syntax": syntax,
+        "fields": fields,
+        "has_angle": has_angle,
+        "invalid_prints": bad,
+    }
+
+
 def _snake_case(s: str) -> str:
     """Converte 'Cliente Nome' ou 'cliente.nome' em 'cliente_nome'."""
     s = s.strip()
@@ -72,26 +99,14 @@ def extract_jinja_fields(docx_path: Path) -> Tuple[str, List[Dict[str, str]]]:
       syntax: "jinja" | "unknown"
       fields: [{ raw, name, type }]
     """
-    txt = _read_xml_from_docx(Path(docx_path))
-    vars_ = sorted({m.group(1) for m in JINJA_VAR_RE.finditer(txt)})
-
-    fields = []
-    for v in vars_:
-        name = _snake_case(v)
-        ftype = "string"
-        if name == "banco":
-            # campo especial tratado no views.py
-            ftype = "string"
-        fields.append({"raw": v, "name": name, "type": ftype})
-
-    syntax = "jinja" if fields or JINJA_BLOCK_RE.search(txt) else "unknown"
-    return syntax, fields
+    info = analyze_jinja_docx(Path(docx_path))
+    return info["syntax"], info["fields"]
 
 
 def detect_angle_brackets(docx_path: Path) -> bool:
     """True se o documento contiver marcadores antigos no formato << ... >>."""
-    txt = _read_xml_from_docx(Path(docx_path))
-    return bool(ANGLE_TAG_RE.search(txt))
+    info = analyze_jinja_docx(Path(docx_path))
+    return info["has_angle"]
 
 
 # Detecta {{ ... }} com sintaxe inválida
@@ -102,10 +117,13 @@ _ALLOWED_EXPR_RE = re.compile(
 )
 
 def find_invalid_jinja_prints(docx_path: Path):
+    info = analyze_jinja_docx(Path(docx_path))
+    return info["invalid_prints"]
+
+
+def analyze_jinja_docx(docx_path: Path) -> Dict[str, Any]:
+    """
+    Analisa o DOCX em leitura única e retorna metadados usados no fluxo de validação.
+    """
     txt = _read_xml_from_docx(Path(docx_path))
-    bad = []
-    for m in PRINT_ANY_RE.finditer(txt):
-        inner = m.group(1).strip()
-        if not _ALLOWED_EXPR_RE.match(inner):
-            bad.append(inner)
-    return bad
+    return _extract_from_text(txt)
