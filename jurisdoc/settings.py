@@ -161,11 +161,16 @@ CSRF_TRUSTED_ORIGINS = os.getenv(
             "http://jurisdoc.local",
             "https://jurisdoc-frontend.hqdg0k.easypanel.host",
             "https://jurisdoc-backend.hqdg0k.easypanel.host",
+            "https://api.azevedoerebonatto.com.br",
+            "https://jurisdoc.azevedoerebonatto.com.br",
         ]
     ),
 ).split(",")
 
 # Abrir CORS para todas as origens (atenção: não use com credenciais)
+# Proxy reverso (EasyPanel/Nginx) envia HTTPS como X-Forwarded-Proto
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
 CORS_ALLOW_ALL_ORIGINS = True
 
 # Usuário customizado
