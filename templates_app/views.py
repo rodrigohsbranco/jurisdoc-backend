@@ -1,3 +1,5 @@
+import subprocess
+import tempfile
 from pathlib import Path
 from io import BytesIO
 
@@ -110,6 +112,53 @@ class TemplateViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response(
                 {"detail": f"Erro ao compor documentos: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=False, methods=["post"], url_path="convert-to-pdf")
+    def convert_to_pdf(self, request):
+        """Recebe um .docx via upload e retorna PDF convertido via LibreOffice."""
+        file = request.FILES.get("file")
+        if not file:
+            return Response(
+                {"detail": "Envie um arquivo .docx no campo 'file'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filename = request.data.get("filename", "documento")
+
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                input_path = Path(tmpdir) / "input.docx"
+                with open(input_path, "wb") as f:
+                    for chunk in file.chunks():
+                        f.write(chunk)
+
+                result = subprocess.run(
+                    ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir", tmpdir, str(input_path)],
+                    capture_output=True,
+                    timeout=30,
+                )
+
+                pdf_path = Path(tmpdir) / "input.pdf"
+                if not pdf_path.exists():
+                    return Response(
+                        {"detail": "Falha na conversão para PDF. Verifique se o LibreOffice está instalado."},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    )
+
+                pdf_bytes = pdf_path.read_bytes()
+                response = HttpResponse(pdf_bytes, content_type="application/pdf")
+                response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
+                return response
+        except subprocess.TimeoutExpired:
+            return Response(
+                {"detail": "Conversão para PDF excedeu o tempo limite."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except FileNotFoundError:
+            return Response(
+                {"detail": "LibreOffice não encontrado no servidor. Instale o pacote 'libreoffice' para converter para PDF."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 

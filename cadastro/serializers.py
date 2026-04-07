@@ -3,6 +3,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
 from .models import Cliente, ContaBancaria, ContaBancariaReu, DescricaoBanco, Representante, Contrato
+from .media_paths import build_media_file_url
 from .validators import only_digits, validate_cpf, validate_cnpj, validate_cep, validate_uf, validate_banco_id
 
 
@@ -17,9 +18,8 @@ class ClienteSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         if not request:
             return docs
-        from django.conf import settings
         return [
-            {**d, "url": request.build_absolute_uri(f"{settings.MEDIA_URL}{d['path']}")}
+            {**d, "url": build_media_file_url(request, d.get("path"))}
             for d in docs
         ]
 

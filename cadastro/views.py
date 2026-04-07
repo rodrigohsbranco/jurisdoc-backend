@@ -8,6 +8,7 @@ from rest_framework import viewsets, permissions, filters, decorators, response,
 from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
 
+from .media_paths import build_media_file_url
 from .models import Cliente, ContaBancaria, ContaBancariaReu, DescricaoBanco, Representante, Contrato
 from .filters import ClienteFilter, ContaBancariaFilter, DescricaoBancoFilter
 
@@ -146,7 +147,7 @@ class ClienteViewSet(viewsets.ModelViewSet):
         """Adiciona URL absoluta a cada doc baseado no path salvo."""
         result = []
         for d in docs:
-            url = request.build_absolute_uri(f"{settings.MEDIA_URL}{d['path']}")
+            url = build_media_file_url(request, d.get("path"))
             result.append({**d, "url": url})
         return result
 
@@ -382,4 +383,3 @@ class ContratoViewSet(viewsets.ModelViewSet):
     def get_serializer_class(self):
         from .serializers import ContratoSerializer
         return ContratoSerializer
-
