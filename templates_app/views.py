@@ -5,7 +5,7 @@ from django.http import HttpResponse
 from django.utils.encoding import iri_to_uri
 from django.conf import settings
 
-from rest_framework import viewsets, permissions, status
+from rest_framework import viewsets, permissions, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
@@ -41,6 +41,10 @@ class TemplateViewSet(viewsets.ModelViewSet):
     queryset = Template.objects.all().order_by("name")
     serializer_class = TemplateSerializer
     permission_classes = [permissions.IsAuthenticated]
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["name"]
+    ordering_fields = ["name", "active"]
+    ordering = ["name"]
 
     def perform_update(self, serializer):
         instance = serializer.instance
