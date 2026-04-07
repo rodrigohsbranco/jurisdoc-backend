@@ -113,6 +113,13 @@ class TemplateViewSet(viewsets.ModelViewSet):
     def fields(self, request, pk=None):
         tpl = self.get_object()
         file_path = Path(tpl.file.path)
+
+        if not file_path.exists():
+            return Response(
+                {"detail": "Arquivo do template não encontrado no servidor. Faça o upload novamente."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         info = analyze_jinja_docx(file_path)
 
         return Response({
@@ -131,6 +138,12 @@ class TemplateViewSet(viewsets.ModelViewSet):
 
         tpl = self.get_object()
         file_path = Path(tpl.file.path)
+
+        if not file_path.exists():
+            return Response(
+                {"detail": "Arquivo do template não encontrado no servidor. Faça o upload novamente."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         # Bloqueia padrão antigo
         info = analyze_jinja_docx(file_path)
