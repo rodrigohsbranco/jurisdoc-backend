@@ -1,5 +1,11 @@
 # cadastro/views.py
+import os
+
+from django.conf import settings
+from django.core.files.storage import default_storage
+
 from rest_framework import viewsets, permissions, filters, decorators, response, status
+from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
 
 from .models import Cliente, ContaBancaria, ContaBancariaReu, DescricaoBanco, Representante, Contrato
@@ -65,6 +71,84 @@ class ClienteViewSet(viewsets.ModelViewSet):
         instance.is_active = False
         instance.save()
         return response.Response(status=status.HTTP_204_NO_CONTENT)
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="documentos-pessoais/upload",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_docs(self, request, pk=None):
+        """
+        Upload de documentos pessoais (múltiplos arquivos).
+        Aceita campo 'files' com um ou mais arquivos.
+        Salva em clientes/docs/<pk>/ e adiciona os paths ao JSONField.
+        """
+        instance = self.get_object()
+        files = request.FILES.getlist("files")
+        if not files:
+            return response.Response(
+                {"detail": "Nenhum arquivo enviado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(instance.documentos_pessoais or [])
+        for f in files:
+            path = default_storage.save(f"clientes/docs/{instance.pk}/{f.name}", f)
+            docs.append({"path": path, "name": f.name})
+
+        instance.documentos_pessoais = docs
+        instance.save(update_fields=["documentos_pessoais"])
+
+        # Retorna com URLs absolutas
+        result = self._docs_with_urls(docs, request)
+        return response.Response({"documentos_pessoais": result}, status=status.HTTP_200_OK)
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="documentos-pessoais/remove",
+    )
+    def remove_doc(self, request, pk=None):
+        """
+        Remove um documento pessoal pelo path.
+        Body: {"path": "clientes/docs/123/rg.jpg"}
+        """
+        instance = self.get_object()
+        path_to_remove = request.data.get("path")
+        if not path_to_remove:
+            return response.Response(
+                {"detail": "Informe o campo 'path'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(instance.documentos_pessoais or [])
+        new_docs = [d for d in docs if d.get("path") != path_to_remove]
+
+        if len(new_docs) == len(docs):
+            return response.Response(
+                {"detail": "Documento não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # Remove arquivo do disco
+        if default_storage.exists(path_to_remove):
+            default_storage.delete(path_to_remove)
+
+        instance.documentos_pessoais = new_docs
+        instance.save(update_fields=["documentos_pessoais"])
+
+        result = self._docs_with_urls(new_docs, request)
+        return response.Response({"documentos_pessoais": result}, status=status.HTTP_200_OK)
+
+    @staticmethod
+    def _docs_with_urls(docs, request):
+        """Adiciona URL absoluta a cada doc baseado no path salvo."""
+        result = []
+        for d in docs:
+            url = request.build_absolute_uri(f"{settings.MEDIA_URL}{d['path']}")
+            result.append({**d, "url": url})
+        return result
 
     @decorators.action(detail=True, methods=["post"], url_path="restore")
     def restore(self, request, pk=None):

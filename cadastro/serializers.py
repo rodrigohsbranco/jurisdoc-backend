@@ -10,6 +10,19 @@ from .validators import only_digits, validate_cpf, validate_cnpj, validate_cep, 
 # Cliente
 # =========================
 class ClienteSerializer(serializers.ModelSerializer):
+    documentos_pessoais = serializers.SerializerMethodField()
+
+    def get_documentos_pessoais(self, obj):
+        docs = obj.documentos_pessoais or []
+        request = self.context.get("request")
+        if not request:
+            return docs
+        from django.conf import settings
+        return [
+            {**d, "url": request.build_absolute_uri(f"{settings.MEDIA_URL}{d['path']}")}
+            for d in docs
+        ]
+
     class Meta:
         model = Cliente
         fields = [
@@ -59,6 +72,8 @@ class ClienteSerializer(serializers.ModelSerializer):
             "nome_titular_numero",
             "relacao_titular_tipo",
             "relacao_titular",
+            # Documentos pessoais
+            "documentos_pessoais",
             # Benefícios
             "beneficios",
             # Status

@@ -84,6 +84,13 @@ class Cliente(models.Model):
     relacao_titular = models.CharField(max_length=100, blank=True)  # quando tipo='outro'
     genero = models.CharField(max_length=15, blank=True)  # masculino/feminino
 
+    # Documentos pessoais (RG, CPF, CNH, etc.) — array de paths relativos ao MEDIA_ROOT
+    documentos_pessoais = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Array JSON de caminhos dos arquivos. Ex: ["clientes/docs/123_rg.jpg", ...]'
+    )
+
     # Benefícios (INSS, etc.)
     beneficios = models.JSONField(
         default=list,
