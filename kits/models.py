@@ -70,6 +70,9 @@ class AcaoKit(models.Model):
     historico_emprestimo = models.FileField(upload_to="kits/acoes/", blank=True)
     historico_credito = models.FileField(upload_to="kits/acoes/", blank=True)
     extrato_bancario = models.FileField(upload_to="kits/acoes/", blank=True)
+    historico_emprestimo_arquivos = models.JSONField(default=list, blank=True)
+    historico_credito_arquivos = models.JSONField(default=list, blank=True)
+    extrato_bancario_arquivos = models.JSONField(default=list, blank=True)
 
     class Meta:
         verbose_name = "Ação do Kit"

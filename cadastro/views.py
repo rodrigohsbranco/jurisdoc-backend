@@ -43,6 +43,13 @@ class ClienteViewSet(viewsets.ModelViewSet):
         "cidade",
         "bairro",
     ]
+    DOCS_FIELD_MAP = {
+        "documentos_pessoais": "documentos_pessoais",
+        "rogado": "rogado_documentos",
+        "testemunha1": "testemunha1_documentos",
+        "testemunha2": "testemunha2_documentos",
+        "responsavel_legal": "responsavel_legal_documentos",
+    }
 
     def get_queryset(self):
         """
@@ -141,6 +148,96 @@ class ClienteViewSet(viewsets.ModelViewSet):
 
         result = self._docs_with_urls(new_docs, request)
         return response.Response({"documentos_pessoais": result}, status=status.HTTP_200_OK)
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="documentos-vinculados/upload",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_related_docs(self, request, pk=None):
+        """
+        Upload de documentos por participante do kit.
+        Campos:
+        - owner: rogado | testemunha1 | testemunha2 | responsavel_legal
+        - files: um ou mais arquivos
+        """
+        instance = self.get_object()
+        owner = request.data.get("owner")
+        field_name = self.DOCS_FIELD_MAP.get(owner)
+        if not field_name or field_name == "documentos_pessoais":
+            return response.Response(
+                {"detail": "Owner inválido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        files = request.FILES.getlist("files")
+        if not files:
+            return response.Response(
+                {"detail": "Nenhum arquivo enviado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(getattr(instance, field_name) or [])
+        for f in files:
+            path = default_storage.save(f"clientes/docs/{instance.pk}/{owner}/{f.name}", f)
+            docs.append({"path": path, "name": f.name})
+
+        setattr(instance, field_name, docs)
+        instance.save(update_fields=[field_name])
+
+        return response.Response(
+            {"documentos": self._docs_with_urls(docs, request)},
+            status=status.HTTP_200_OK,
+        )
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="documentos-vinculados/remove",
+    )
+    def remove_related_doc(self, request, pk=None):
+        """
+        Remove documento de participante do kit.
+        Body:
+        - owner: rogado | testemunha1 | testemunha2 | responsavel_legal
+        - path: caminho do arquivo
+        """
+        instance = self.get_object()
+        owner = request.data.get("owner")
+        field_name = self.DOCS_FIELD_MAP.get(owner)
+        if not field_name or field_name == "documentos_pessoais":
+            return response.Response(
+                {"detail": "Owner inválido."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        path_to_remove = request.data.get("path")
+        if not path_to_remove:
+            return response.Response(
+                {"detail": "Informe o campo 'path'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(getattr(instance, field_name) or [])
+        new_docs = [d for d in docs if d.get("path") != path_to_remove]
+
+        if len(new_docs) == len(docs):
+            return response.Response(
+                {"detail": "Documento não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if default_storage.exists(path_to_remove):
+            default_storage.delete(path_to_remove)
+
+        setattr(instance, field_name, new_docs)
+        instance.save(update_fields=[field_name])
+
+        return response.Response(
+            {"documentos": self._docs_with_urls(new_docs, request)},
+            status=status.HTTP_200_OK,
+        )
 
     @staticmethod
     def _docs_with_urls(docs, request):

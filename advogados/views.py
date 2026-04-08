@@ -2,6 +2,7 @@ from rest_framework import viewsets, permissions, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Q
 
 from accounts.permissions import IsAdmin
 from .models import Advogado, OabUf
@@ -41,12 +42,15 @@ class AdvogadoViewSet(viewsets.ModelViewSet):
 
         advogados = Advogado.objects.filter(
             ativo=True,
-            oabs__uf=uf,
+        ).filter(
+            Q(is_socio=True) | Q(oabs__uf=uf),
         ).prefetch_related("oabs").distinct()
 
         result = []
         for adv in advogados:
             oab = adv.oabs.filter(uf=uf).first()
+            if not oab and adv.is_socio:
+                oab = adv.oabs.filter(uf="SC").first()
             result.append({
                 "id": adv.id,
                 "nome_completo": adv.nome_completo,

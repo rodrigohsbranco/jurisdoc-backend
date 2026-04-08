@@ -55,14 +55,18 @@ class Cliente(models.Model):
     # Assinatura a rogo (analfabeto)
     rogado_nome = models.CharField(max_length=200, blank=True)
     rogado_cpf = models.CharField(max_length=11, blank=True)
+    rogado_documentos = models.JSONField(default=list, blank=True)
     testemunha1_nome = models.CharField(max_length=200, blank=True)
     testemunha1_cpf = models.CharField(max_length=11, blank=True)
+    testemunha1_documentos = models.JSONField(default=list, blank=True)
     testemunha2_nome = models.CharField(max_length=200, blank=True)
     testemunha2_cpf = models.CharField(max_length=11, blank=True)
+    testemunha2_documentos = models.JSONField(default=list, blank=True)
 
     # Responsável legal (incapaz / criança)
     responsavel_legal_nome = models.CharField(max_length=200, blank=True)
     responsavel_legal_cpf = models.CharField(max_length=11, blank=True)
+    responsavel_legal_documentos = models.JSONField(default=list, blank=True)
 
     # Declaração de hipossuficiência
     possui_imoveis = models.BooleanField(null=True, blank=True, default=None)

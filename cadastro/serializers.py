@@ -12,16 +12,31 @@ from .validators import only_digits, validate_cpf, validate_cnpj, validate_cep, 
 # =========================
 class ClienteSerializer(serializers.ModelSerializer):
     documentos_pessoais = serializers.SerializerMethodField()
+    rogado_documentos = serializers.SerializerMethodField()
+    testemunha1_documentos = serializers.SerializerMethodField()
+    testemunha2_documentos = serializers.SerializerMethodField()
+    responsavel_legal_documentos = serializers.SerializerMethodField()
 
     def get_documentos_pessoais(self, obj):
-        docs = obj.documentos_pessoais or []
+        return self._docs_with_urls(obj.documentos_pessoais or [])
+
+    def get_rogado_documentos(self, obj):
+        return self._docs_with_urls(obj.rogado_documentos or [])
+
+    def get_testemunha1_documentos(self, obj):
+        return self._docs_with_urls(obj.testemunha1_documentos or [])
+
+    def get_testemunha2_documentos(self, obj):
+        return self._docs_with_urls(obj.testemunha2_documentos or [])
+
+    def get_responsavel_legal_documentos(self, obj):
+        return self._docs_with_urls(obj.responsavel_legal_documentos or [])
+
+    def _docs_with_urls(self, docs):
         request = self.context.get("request")
         if not request:
             return docs
-        return [
-            {**d, "url": build_media_file_url(request, d.get("path"))}
-            for d in docs
-        ]
+        return [{**d, "url": build_media_file_url(request, d.get("path"))} for d in docs]
 
     class Meta:
         model = Cliente
@@ -54,12 +69,16 @@ class ClienteSerializer(serializers.ModelSerializer):
             "telefone",
             "rogado_nome",
             "rogado_cpf",
+            "rogado_documentos",
             "testemunha1_nome",
             "testemunha1_cpf",
+            "testemunha1_documentos",
             "testemunha2_nome",
             "testemunha2_cpf",
+            "testemunha2_documentos",
             "responsavel_legal_nome",
             "responsavel_legal_cpf",
+            "responsavel_legal_documentos",
             "possui_imoveis",
             "possui_moveis",
             "isento_irpf",

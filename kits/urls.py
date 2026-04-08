@@ -18,4 +18,14 @@ urlpatterns = [
         AcaoKitViewSet.as_view({"get": "retrieve", "patch": "partial_update", "delete": "destroy"}),
         name="kit-acoes-detail",
     ),
+    path(
+        "<int:kit_pk>/acoes/<int:pk>/anexos/upload/",
+        AcaoKitViewSet.as_view({"post": "upload_attachments"}),
+        name="kit-acoes-anexos-upload",
+    ),
+    path(
+        "<int:kit_pk>/acoes/<int:pk>/anexos/remove/",
+        AcaoKitViewSet.as_view({"post": "remove_attachment"}),
+        name="kit-acoes-anexos-remove",
+    ),
 ]

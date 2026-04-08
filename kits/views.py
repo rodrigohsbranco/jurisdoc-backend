@@ -1,5 +1,7 @@
+from django.core.files.storage import default_storage
 from rest_framework import viewsets, permissions, status, filters
 from rest_framework.decorators import action
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -117,10 +119,91 @@ class KitViewSet(viewsets.ModelViewSet):
 class AcaoKitViewSet(viewsets.ModelViewSet):
     serializer_class = AcaoKitSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = [JSONParser, MultiPartParser, FormParser]
+    DOCS_FIELD_MAP = {
+        "historico_emprestimo": "historico_emprestimo_arquivos",
+        "historico_credito": "historico_credito_arquivos",
+        "extrato_bancario": "extrato_bancario_arquivos",
+    }
 
     def get_queryset(self):
         return AcaoKit.objects.filter(kit_id=self.kwargs["kit_pk"])
 
+    def get_serializer(self, *args, **kwargs):
+        data = kwargs.get("data")
+        request = getattr(self, "request", None)
+        if data is not None and request is not None and hasattr(data, "copy"):
+            mutable = data.copy()
+            for key in [
+                "historico_emprestimo_keep_paths",
+                "historico_credito_keep_paths",
+                "extrato_bancario_keep_paths",
+            ]:
+                values = request.data.getlist(key)
+                if values:
+                    mutable.setlist(key, values)
+
+            for key in [
+                "historico_emprestimo_files",
+                "historico_credito_files",
+                "extrato_bancario_files",
+            ]:
+                files = request.FILES.getlist(key)
+                if files:
+                    mutable.setlist(key, files)
+
+            kwargs["data"] = mutable
+        return super().get_serializer(*args, **kwargs)
+
     def perform_create(self, serializer):
         kit = Kit.objects.get(pk=self.kwargs["kit_pk"])
         serializer.save(kit=kit)
+
+    @action(detail=True, methods=["post"], url_path="anexos/upload")
+    def upload_attachments(self, request, kit_pk=None, pk=None):
+        instance = self.get_object()
+        owner = request.data.get("owner")
+        field_name = self.DOCS_FIELD_MAP.get(owner)
+        if not field_name:
+            return Response({"detail": "Owner inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        files = request.FILES.getlist("files")
+        if not files:
+            return Response({"detail": "Nenhum arquivo enviado."}, status=status.HTTP_400_BAD_REQUEST)
+
+        docs = list(getattr(instance, field_name) or [])
+        for file in files:
+            path = default_storage.save(f"kits/acoes/{instance.pk}/{owner}/{file.name}", file)
+            docs.append({"path": path, "name": file.name})
+
+        setattr(instance, field_name, docs)
+        instance.save(update_fields=[field_name])
+
+        serializer = self.get_serializer(instance)
+        return Response({"documentos": serializer.data[field_name]}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="anexos/remove")
+    def remove_attachment(self, request, kit_pk=None, pk=None):
+        instance = self.get_object()
+        owner = request.data.get("owner")
+        field_name = self.DOCS_FIELD_MAP.get(owner)
+        if not field_name:
+            return Response({"detail": "Owner inválido."}, status=status.HTTP_400_BAD_REQUEST)
+
+        path_to_remove = request.data.get("path")
+        if not path_to_remove:
+            return Response({"detail": "Informe o campo 'path'."}, status=status.HTTP_400_BAD_REQUEST)
+
+        docs = list(getattr(instance, field_name) or [])
+        new_docs = [doc for doc in docs if doc.get("path") != path_to_remove]
+        if len(new_docs) == len(docs):
+            return Response({"detail": "Documento não encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+        if default_storage.exists(path_to_remove):
+            default_storage.delete(path_to_remove)
+
+        setattr(instance, field_name, new_docs)
+        instance.save(update_fields=[field_name])
+
+        serializer = self.get_serializer(instance)
+        return Response({"documentos": serializer.data[field_name]}, status=status.HTTP_200_OK)
