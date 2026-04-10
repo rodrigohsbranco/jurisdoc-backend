@@ -16,6 +16,7 @@ from common.jinja_env import build_env
 from .models import Template
 from .serializers import TemplateSerializer
 from .utils_jinja import analyze_jinja_docx
+from .docx_jinja_normalizer import normalize_docx_jinja_runs
 
 # Import extra
 from cadastro.models import Cliente, DescricaoBanco
@@ -64,6 +65,52 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 instance.file.storage.delete(instance.file.name)
         instance.delete()
 
+    def _compose_docx_files(self, files):
+        from docx import Document
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+        import copy
+
+        master = Document(files[0])
+        master_body = master.element.body
+
+        for f in files[1:]:
+            page_break_para = OxmlElement('w:p')
+            run_elem = OxmlElement('w:r')
+            br = OxmlElement('w:br')
+            br.set(qn('w:type'), 'page')
+            run_elem.append(br)
+            page_break_para.append(run_elem)
+            master_body.append(page_break_para)
+
+            doc = Document(f)
+            for child in doc.element.body:
+                tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
+                if tag in ('p', 'tbl'):
+                    master_body.append(copy.deepcopy(child))
+
+        buf = BytesIO()
+        master.save(buf)
+        return buf.getvalue()
+
+    def _convert_docx_bytes_to_pdf(self, docx_bytes: bytes) -> bytes:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_path = Path(tmpdir) / "input.docx"
+            input_path.write_bytes(docx_bytes)
+
+            subprocess.run(
+                ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir", tmpdir, str(input_path)],
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+
+            pdf_path = Path(tmpdir) / "input.pdf"
+            if not pdf_path.exists():
+                raise RuntimeError("Falha na conversão para PDF. Verifique se o LibreOffice está instalado.")
+
+            return pdf_path.read_bytes()
+
     @action(detail=False, methods=["post"])
     def compose(self, request):
         """Combina múltiplos .docx em um único documento com quebra de página entre cada."""
@@ -74,37 +121,9 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            from docx import Document
-            from docx.oxml.ns import qn
-            from docx.oxml import OxmlElement
-            import copy
-
-            master = Document(files[0])
-            master_body = master.element.body
-
-            for f in files[1:]:
-                # Adiciona quebra de página
-                page_break_para = OxmlElement('w:p')
-                run_elem = OxmlElement('w:r')
-                br = OxmlElement('w:br')
-                br.set(qn('w:type'), 'page')
-                run_elem.append(br)
-                page_break_para.append(run_elem)
-                master_body.append(page_break_para)
-
-                # Copia TODOS os elementos do body (parágrafos + tabelas) na ordem original
-                doc = Document(f)
-                for child in doc.element.body:
-                    tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
-                    if tag in ('p', 'tbl'):
-                        master_body.append(copy.deepcopy(child))
-
-            buf = BytesIO()
-            master.save(buf)
-            buf.seek(0)
-
+            docx_bytes = self._compose_docx_files(files)
             response = HttpResponse(
-                buf.getvalue(),
+                docx_bytes,
                 content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             )
             response["Content-Disposition"] = 'attachment; filename="composed.docx"'
@@ -128,29 +147,16 @@ class TemplateViewSet(viewsets.ModelViewSet):
         filename = request.data.get("filename", "documento")
 
         try:
-            with tempfile.TemporaryDirectory() as tmpdir:
-                input_path = Path(tmpdir) / "input.docx"
-                with open(input_path, "wb") as f:
-                    for chunk in file.chunks():
-                        f.write(chunk)
-
-                result = subprocess.run(
-                    ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir", tmpdir, str(input_path)],
-                    capture_output=True,
-                    timeout=30,
-                )
-
-                pdf_path = Path(tmpdir) / "input.pdf"
-                if not pdf_path.exists():
-                    return Response(
-                        {"detail": "Falha na conversão para PDF. Verifique se o LibreOffice está instalado."},
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    )
-
-                pdf_bytes = pdf_path.read_bytes()
-                response = HttpResponse(pdf_bytes, content_type="application/pdf")
-                response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
-                return response
+            docx_bytes = b"".join(chunk for chunk in file.chunks())
+            pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
+            return response
+        except RuntimeError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
         except subprocess.TimeoutExpired:
             return Response(
                 {"detail": "Conversão para PDF excedeu o tempo limite."},
@@ -159,6 +165,45 @@ class TemplateViewSet(viewsets.ModelViewSet):
         except FileNotFoundError:
             return Response(
                 {"detail": "LibreOffice não encontrado no servidor. Instale o pacote 'libreoffice' para converter para PDF."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    @action(detail=False, methods=["post"], url_path="compose-to-pdf")
+    def compose_to_pdf(self, request):
+        """Combina múltiplos .docx na ordem enviada e retorna um único PDF."""
+        files = request.FILES.getlist("files")
+        if not files or len(files) < 2:
+            return Response(
+                {"detail": "Envie pelo menos 2 arquivos .docx."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        filename = request.data.get("filename", "documentos")
+
+        try:
+            docx_bytes = self._compose_docx_files(files)
+            pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
+            response = HttpResponse(pdf_bytes, content_type="application/pdf")
+            response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
+            return response
+        except RuntimeError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except subprocess.TimeoutExpired:
+            return Response(
+                {"detail": "Conversão para PDF excedeu o tempo limite."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except FileNotFoundError:
+            return Response(
+                {"detail": "LibreOffice não encontrado no servidor. Instale o pacote 'libreoffice' para converter para PDF."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except Exception as e:
+            return Response(
+                {"detail": f"Erro ao compor documentos em PDF: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -248,7 +293,8 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 pass
 
         try:
-            doc = DocxTemplate(str(file_path))
+            normalized_path = normalize_docx_jinja_runs(file_path)
+            doc = DocxTemplate(str(normalized_path))
             env = build_env()
 
             # Trata imagem_do_contrato enviada no context como PATH salvo em MEDIA_ROOT.
@@ -295,3 +341,6 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 {"detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        finally:
+            if "normalized_path" in locals():
+                normalized_path.unlink(missing_ok=True)

@@ -43,6 +43,19 @@ class AcaoKitSerializer(serializers.ModelSerializer):
         required=False,
     )
 
+    def validate(self, attrs):
+        tipo_acao = attrs.get("tipo_acao", getattr(self.instance, "tipo_acao", ""))
+        tarifa_questionada = attrs.get("tarifa_questionada", getattr(self.instance, "tarifa_questionada", ""))
+        tarifa_questionada_outro = attrs.get("tarifa_questionada_outro", getattr(self.instance, "tarifa_questionada_outro", ""))
+
+        if tipo_acao == "tarifa_bancaria" and tarifa_questionada == "OUTROS" and not str(tarifa_questionada_outro).strip():
+            raise serializers.ValidationError({"tarifa_questionada_outro": "Informe a outra tarifa."})
+
+        if tarifa_questionada != "OUTROS":
+            attrs["tarifa_questionada_outro"] = ""
+
+        return attrs
+
     def get_historico_emprestimo_arquivos(self, obj):
         return self._docs_with_urls(self._combined_docs(obj, "historico_emprestimo", "historico_emprestimo_arquivos"))
 
@@ -181,6 +194,7 @@ class AcaoKitSerializer(serializers.ModelSerializer):
             "banco_outro",
             "numero_contrato",
             "tarifa_questionada",
+            "tarifa_questionada_outro",
             "tipo_seguro",
             "tipo_contribuicao",
             "historico_emprestimo",

@@ -19,6 +19,7 @@ from .serializers import PetitionSerializer
 # Template (arquivo .docx) vem do app templates_app
 from templates_app.models import Template as DocTemplate
 from templates_app.utils_jinja import analyze_jinja_docx
+from templates_app.docx_jinja_normalizer import normalize_docx_jinja_runs
 
 # Import para buscar a descrição ativa do banco
 from cadastro.models import DescricaoBanco
@@ -247,7 +248,8 @@ class PetitionViewSet(viewsets.ModelViewSet):
             )
 
         try:
-            doc = DocxTemplate(str(file_path))
+            normalized_path = normalize_docx_jinja_runs(file_path)
+            doc = DocxTemplate(str(normalized_path))
             env = build_env()
             doc.render(context, jinja_env=env)
 
@@ -265,3 +267,6 @@ class PetitionViewSet(viewsets.ModelViewSet):
 
         except Exception as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        finally:
+            if "normalized_path" in locals():
+                normalized_path.unlink(missing_ok=True)
