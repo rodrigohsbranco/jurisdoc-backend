@@ -62,7 +62,7 @@ class AcaoKit(models.Model):
     tipo_acao = models.CharField(max_length=50, choices=TIPO_ACAO_CHOICES)
     nome_banco = models.CharField(max_length=100)
     banco_outro = models.CharField(max_length=100, blank=True)
-    numero_contrato = models.CharField(max_length=50, blank=True)
+    numero_contrato = models.CharField(max_length=500, blank=True)
     tarifa_questionada = models.CharField(max_length=100, blank=True)
     tarifa_questionada_outro = models.CharField(max_length=255, blank=True)
     tipo_seguro = models.TextField(blank=True)
