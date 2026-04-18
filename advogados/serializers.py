@@ -14,10 +14,7 @@ class OabUfSerializer(serializers.ModelSerializer):
             "unidade_apoio_nome",
             "unidade_apoio_endereco",
         ]
-        read_only_fields = ["id"]
-        extra_kwargs = {
-            "advogado": {"required": False},
-        }
+        read_only_fields = ["id", "advogado"]
 
 
 class AdvogadoListSerializer(serializers.ModelSerializer):
