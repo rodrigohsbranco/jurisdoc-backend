@@ -1,4 +1,5 @@
 from django.core.files.storage import default_storage
+from django.db.models import Count, Q
 from rest_framework import viewsets, permissions, status, filters
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -114,6 +115,18 @@ class KitViewSet(viewsets.ModelViewSet):
         kit.status = novo_status
         kit.save(update_fields=["status", "atualizado_em"])
         return Response(KitDetailSerializer(kit).data)
+
+    @action(detail=False, methods=["get"])
+    def stats(self, request):
+        qs = self.get_queryset()
+        counts = qs.aggregate(
+            total=Count("id"),
+            rascunho=Count("id", filter=Q(status="rascunho")),
+            em_andamento=Count("id", filter=Q(status="acoes")),
+            pendentes=Count("id", filter=Q(status="finalizado")),
+            assinados=Count("id", filter=Q(status="assinado")),
+        )
+        return Response(counts)
 
 
 class AcaoKitViewSet(viewsets.ModelViewSet):
