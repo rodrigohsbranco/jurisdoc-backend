@@ -36,7 +36,7 @@ TRANSICOES_VALIDAS = {
 class KitViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrAdmin]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ["status", "cliente", "criado_por"]
+    filterset_fields = ["tipo", "status", "cliente", "criado_por"]
     search_fields = ["cliente__nome_completo", "cliente__cpf"]
     ordering_fields = ["criado_em", "atualizado_em"]
     ordering = ["-criado_em"]

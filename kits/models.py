@@ -5,6 +5,11 @@ from cadastro.models import Cliente
 
 
 class Kit(models.Model):
+    TIPO_CHOICES = [
+        ("bancario", "Bancário"),
+        ("previdenciario", "Previdenciário"),
+    ]
+
     STATUS_CHOICES = [
         ("rascunho", "Rascunho"),
         ("acoes", "Em andamento"),
@@ -12,6 +17,11 @@ class Kit(models.Model):
         ("assinado", "Assinado"),
     ]
 
+    tipo = models.CharField(
+        max_length=20,
+        choices=TIPO_CHOICES,
+        default="bancario",
+    )
     cliente = models.ForeignKey(
         Cliente,
         on_delete=models.CASCADE,
@@ -40,7 +50,7 @@ class Kit(models.Model):
         ]
 
     def __str__(self):
-        return f"Kit #{self.id} - {self.cliente.nome_completo} ({self.get_status_display()})"
+        return f"Kit #{self.id} ({self.get_tipo_display()}) - {self.cliente.nome_completo} ({self.get_status_display()})"
 
 
 class AcaoKit(models.Model):

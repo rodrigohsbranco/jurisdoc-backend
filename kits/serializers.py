@@ -239,6 +239,7 @@ class KitListSerializer(serializers.ModelSerializer):
         model = Kit
         fields = [
             "id",
+            "tipo",
             "cliente",
             "cliente_nome",
             "cliente_cpf",
@@ -261,6 +262,7 @@ class KitDetailSerializer(serializers.ModelSerializer):
         model = Kit
         fields = [
             "id",
+            "tipo",
             "cliente",
             "cliente_detail",
             "criado_por",
@@ -279,6 +281,7 @@ class KitCreateSerializer(serializers.ModelSerializer):
         model = Kit
         fields = [
             "id",
+            "tipo",
             "cliente",
             "status",
             "criado_em",
