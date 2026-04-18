@@ -126,7 +126,17 @@ class AcaoKitViewSet(viewsets.ModelViewSet):
         "extrato_bancario": "extrato_bancario_arquivos",
     }
 
+    def _get_kit(self):
+        from django.shortcuts import get_object_or_404
+        kit = get_object_or_404(Kit, pk=self.kwargs["kit_pk"])
+        user = self.request.user
+        if not getattr(user, "is_admin", False) and kit.criado_por != user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Você não tem permissão para acessar este kit.")
+        return kit
+
     def get_queryset(self):
+        self._get_kit()
         return AcaoKit.objects.filter(kit_id=self.kwargs["kit_pk"])
 
     def get_serializer(self, *args, **kwargs):
@@ -156,7 +166,7 @@ class AcaoKitViewSet(viewsets.ModelViewSet):
         return super().get_serializer(*args, **kwargs)
 
     def perform_create(self, serializer):
-        kit = Kit.objects.get(pk=self.kwargs["kit_pk"])
+        kit = self._get_kit()
         serializer.save(kit=kit)
 
     @action(detail=True, methods=["post"], url_path="anexos/upload")
