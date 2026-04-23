@@ -70,7 +70,7 @@ class AcaoKit(models.Model):
         related_name="acoes",
     )
     tipo_acao = models.CharField(max_length=50, choices=TIPO_ACAO_CHOICES)
-    nome_banco = models.CharField(max_length=100)
+    nome_banco = models.CharField(max_length=100, blank=True)
     banco_outro = models.CharField(max_length=100, blank=True)
     numero_contrato = models.CharField(max_length=500, blank=True)
     tarifa_questionada = models.CharField(max_length=100, blank=True)
