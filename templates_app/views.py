@@ -208,6 +208,25 @@ class TemplateViewSet(viewsets.ModelViewSet):
             )
 
     @action(detail=True, methods=["get"])
+    def download(self, request, pk=None):
+        tpl = self.get_object()
+        file_path = Path(tpl.file.path)
+
+        if not file_path.exists():
+            return Response(
+                {"detail": "Arquivo do template não encontrado no servidor."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        safe_fn = iri_to_uri(f"{tpl.name}.docx")
+        response = HttpResponse(
+            file_path.read_bytes(),
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        response["Content-Disposition"] = f'attachment; filename="{safe_fn}"'
+        return response
+
+    @action(detail=True, methods=["get"])
     def fields(self, request, pk=None):
         tpl = self.get_object()
         file_path = Path(tpl.file.path)
