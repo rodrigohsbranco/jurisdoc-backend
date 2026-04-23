@@ -6,12 +6,15 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import AcaoKit, Kit
+from accounts.permissions import IsAdmin
+from .models import AcaoKit, BancoKit, Kit, TarifaKit
 from .serializers import (
     AcaoKitSerializer,
+    BancoKitSerializer,
     KitCreateSerializer,
     KitDetailSerializer,
     KitListSerializer,
+    TarifaKitSerializer,
 )
 
 
@@ -26,7 +29,7 @@ class IsOwnerOrAdmin(permissions.BasePermission):
 
 # Transições válidas de status
 TRANSICOES_VALIDAS = {
-    "rascunho": ["acoes"],
+    "rascunho": ["acoes", "finalizado"],
     "acoes": ["finalizado"],
     "finalizado": ["assinado"],
     "assinado": [],
@@ -73,7 +76,7 @@ class KitViewSet(viewsets.ModelViewSet):
                 {"detail": f"Não é possível finalizar um kit com status '{kit.get_status_display()}'."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if kit.acoes.count() == 0:
+        if kit.tipo != "previdenciario" and kit.acoes.count() == 0:
             return Response(
                 {"detail": "O kit precisa ter pelo menos uma ação para ser finalizado."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -230,3 +233,31 @@ class AcaoKitViewSet(viewsets.ModelViewSet):
 
         serializer = self.get_serializer(instance)
         return Response({"documentos": serializer.data[field_name]}, status=status.HTTP_200_OK)
+
+
+class BancoKitViewSet(viewsets.ModelViewSet):
+    queryset = BancoKit.objects.all()
+    serializer_class = BancoKitSerializer
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["nome"]
+    ordering_fields = ["nome", "ordem"]
+    ordering = ["ordem", "nome"]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsAdmin()]
+
+
+class TarifaKitViewSet(viewsets.ModelViewSet):
+    queryset = TarifaKit.objects.all()
+    serializer_class = TarifaKitSerializer
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["nome"]
+    ordering_fields = ["nome", "ordem"]
+    ordering = ["ordem", "nome"]
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsAdmin()]

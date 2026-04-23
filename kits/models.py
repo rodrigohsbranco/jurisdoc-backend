@@ -120,3 +120,31 @@ class DocumentoKit(models.Model):
 
     def __str__(self):
         return f"{self.get_tipo_display()} - Kit #{self.kit_id}"
+
+
+class BancoKit(models.Model):
+    nome = models.CharField(max_length=100, unique=True)
+    ativo = models.BooleanField(default=True)
+    ordem = models.IntegerField(default=0)
+
+    class Meta:
+        verbose_name = "Banco"
+        verbose_name_plural = "Bancos"
+        ordering = ["ordem", "nome"]
+
+    def __str__(self):
+        return self.nome
+
+
+class TarifaKit(models.Model):
+    nome = models.CharField(max_length=200, unique=True)
+    ativo = models.BooleanField(default=True)
+    ordem = models.IntegerField(default=0)
+
+    class Meta:
+        verbose_name = "Tarifa"
+        verbose_name_plural = "Tarifas"
+        ordering = ["ordem", "nome"]
+
+    def __str__(self):
+        return self.nome

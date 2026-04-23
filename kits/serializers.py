@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from cadastro.media_paths import build_media_file_url
 from cadastro.serializers import ClienteSerializer
-from .models import AcaoKit, DocumentoKit, Kit
+from .models import AcaoKit, BancoKit, DocumentoKit, Kit, TarifaKit
 
 
 class AcaoKitSerializer(serializers.ModelSerializer):
@@ -288,3 +288,17 @@ class KitCreateSerializer(serializers.ModelSerializer):
             "atualizado_em",
         ]
         read_only_fields = ["id", "status", "criado_em", "atualizado_em"]
+
+
+class BancoKitSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BancoKit
+        fields = ["id", "nome", "ativo", "ordem"]
+        read_only_fields = ["id"]
+
+
+class TarifaKitSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TarifaKit
+        fields = ["id", "nome", "ativo", "ordem"]
+        read_only_fields = ["id"]

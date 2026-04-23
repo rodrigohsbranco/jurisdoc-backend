@@ -30,6 +30,9 @@ class Cliente(models.Model):
     se_incapaz = models.BooleanField(default=False)
     se_crianca_adolescente = models.BooleanField(default=False)
 
+    # Data de nascimento (obrigatório para kits previdenciários)
+    data_nascimento = models.DateField(null=True, blank=True)
+
     # Dados civis
     nacionalidade = models.CharField(max_length=60, blank=True)
     estado_civil = models.CharField(max_length=20, blank=True)  # ou choices=ESTADO_CIVIL_CHOICES

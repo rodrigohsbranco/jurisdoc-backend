@@ -52,6 +52,7 @@ class ClienteSerializer(serializers.ModelSerializer):
             "se_idoso",
             "se_incapaz",
             "se_crianca_adolescente",
+            "data_nascimento",
             # Dados civis
             "nacionalidade",
             "estado_civil",
