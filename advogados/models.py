@@ -14,6 +14,7 @@ class Advogado(models.Model):
     is_socio = models.BooleanField(default=False, help_text="Sócio do escritório Azevedo Lima & Rebonatto")
     escritorio_nome = models.CharField(max_length=200, blank=True, help_text="Nome do escritório individual (não-sócios)")
     escritorio_cnpj = models.CharField(max_length=20, blank=True, help_text="CNPJ do escritório individual")
+    escritorio_endereco = models.TextField(blank=True, help_text="Endereço completo do escritório individual")
     ativo = models.BooleanField(default=True)
 
     criado_em = models.DateTimeField(auto_now_add=True)
