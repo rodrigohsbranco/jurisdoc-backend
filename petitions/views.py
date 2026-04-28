@@ -20,6 +20,7 @@ from .serializers import PetitionSerializer
 from templates_app.models import Template as DocTemplate
 from templates_app.utils_jinja import analyze_jinja_docx
 from templates_app.docx_jinja_normalizer import normalize_docx_jinja_runs
+from templates_app.docx_cleaner import strip_blank_pages
 
 # Import para buscar a descrição ativa do banco
 from cadastro.models import DescricaoBanco
@@ -256,6 +257,10 @@ class PetitionViewSet(viewsets.ModelViewSet):
             buf = BytesIO()
             doc.save(buf)
             buf.seek(0)
+            try:
+                buf = strip_blank_pages(buf)
+            except Exception:
+                buf.seek(0)
 
             safe_fn = iri_to_uri(f"{filename}.docx")
             resp = HttpResponse(

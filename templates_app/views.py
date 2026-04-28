@@ -17,6 +17,7 @@ from .models import Template
 from .serializers import TemplateSerializer
 from .utils_jinja import analyze_jinja_docx
 from .docx_jinja_normalizer import normalize_docx_jinja_runs
+from .docx_cleaner import strip_blank_pages
 
 # Import extra
 from cadastro.models import Cliente, DescricaoBanco
@@ -346,6 +347,10 @@ class TemplateViewSet(viewsets.ModelViewSet):
             buf = BytesIO()
             doc.save(buf)
             buf.seek(0)
+            try:
+                buf = strip_blank_pages(buf)
+            except Exception:
+                buf.seek(0)
 
             safe_fn = iri_to_uri(f"{filename}.docx")
             resp = HttpResponse(
