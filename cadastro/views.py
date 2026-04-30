@@ -21,7 +21,7 @@ class IsAdmin(permissions.BasePermission):
 
 
 class ClienteViewSet(viewsets.ModelViewSet):
-    queryset = Cliente.objects.filter(is_active=True).order_by("nome_completo")
+    queryset = Cliente.objects.filter(is_active=True).order_by("-criado_em")
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = None  # setado no get_serializer_class
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -57,7 +57,7 @@ class ClienteViewSet(viewsets.ModelViewSet):
         Para ver inativos, use ?is_active=false na query.
         Para ver todos, use ?is_active= (vazio) ou não passe o parâmetro e use o filtro manualmente.
         """
-        qs = Cliente.objects.all().order_by("nome_completo")
+        qs = Cliente.objects.all().order_by("-criado_em")
         is_active_param = self.request.query_params.get("is_active")
         
         # Se não foi especificado, filtra apenas ativos por padrão
