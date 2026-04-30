@@ -9,6 +9,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
     libreoffice-writer \
+    fonts-crosextra-carlito \
+    fonts-crosextra-caladea \
+    fonts-liberation \
+    fonts-liberation2 \
+    fonts-dejavu \
+  && fc-cache -f \
   && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
