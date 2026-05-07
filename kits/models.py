@@ -8,6 +8,7 @@ class Kit(models.Model):
     TIPO_CHOICES = [
         ("bancario", "Bancário"),
         ("previdenciario", "Previdenciário"),
+        ("marketing", "Marketing"),
     ]
 
     STATUS_CHOICES = [
