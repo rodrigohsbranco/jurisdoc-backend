@@ -1,19 +1,22 @@
 """
 Injeta "Página X de Y" no rodapé de cada seção de um .docx.
 
-Usa campos nativos do OOXML (PAGE e NUMPAGES) que Word e LibreOffice
-calculam na hora de renderizar/converter para PDF. Não tenta calcular
-o número de páginas em Python — isso depende do layout final.
+Duas estratégias:
 
-Comportamento:
-- Adiciona um parágrafo centralizado ao final do rodapé existente
-  (mantém qualquer conteúdo prévio: logo, endereço do escritório, etc.).
-- Aplica a todas as seções do documento.
-- Se a seção tem "primeira página diferente" (<w:titlePg/>), adiciona
-  também no rodapé da primeira página.
-- Skip automático se o rodapé já tem um campo PAGE — evita duplicação
-  em re-renders ou em templates que já fizeram manualmente.
-- Em caso de erro, retorna os bytes originais.
+- add_page_numbering_simple(bytes): injeta um campo PAGE/NUMPAGES sempre
+  visível ("Página X de Y"). Funciona em qualquer renderizador. Usado
+  no caminho do PDF, depois de já termos detectado que o documento tem
+  mais de uma página.
+
+- add_page_numbering_conditional(bytes): injeta um campo IF aninhado
+  que esconde a numeração em documentos de página única. Funciona
+  perfeitamente no Word (que avalia fields aninhados). LibreOffice
+  versões < 7.5 têm bug com fields aninhados em IF — não usar para
+  o caminho do PDF.
+
+Ambas mantêm qualquer rodapé existente (logo, endereço, etc.) — só
+anexam um novo parágrafo. Em caso de erro, retornam os bytes originais
+sem quebrar o pipeline.
 """
 from io import BytesIO
 
@@ -26,9 +29,7 @@ W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 
 
 def _footer_has_page_field(footer) -> bool:
-    """True se o rodapé já tem o padrão 'X de Y' (campo NUMPAGES presente).
-    Templates com apenas PAGE simples não são considerados — ainda queremos
-    adicionar o formato 'Página X de Y' que o usuário pediu."""
+    """True se o rodapé já tem o padrão 'X de Y' (campo NUMPAGES presente)."""
     xml = footer._element.xml if hasattr(footer._element, "xml") else ""
     if not xml:
         for p in footer.paragraphs:
@@ -61,57 +62,63 @@ def _instr_text(text: str):
 def _text_run(text: str):
     t = OxmlElement("w:t")
     t.text = text
-    if text != text.strip() or not text:
+    if not text or text != text.strip():
         t.set(qn("xml:space"), "preserve")
     return _make_run_with_child(t)
 
 
-def _append_page_paragraph(footer):
+def _make_simple_field(instr: str):
+    """<w:fldSimple w:instr=" PAGE "> com placeholder dentro."""
+    fld = OxmlElement("w:fldSimple")
+    fld.set(qn("w:instr"), f" {instr} ")
+    fld.append(_text_run("1"))
+    return fld
+
+
+def _append_simple_paragraph(footer):
+    """Sem condição: 'Página { PAGE } de { NUMPAGES }' alinhado à direita."""
+    p = footer.add_paragraph()
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p_el = p._p
+    p_el.append(_text_run("Página "))
+    p_el.append(_make_simple_field("PAGE"))
+    p_el.append(_text_run(" de "))
+    p_el.append(_make_simple_field("NUMPAGES"))
+
+
+def _append_conditional_paragraph(footer):
     """
-    Adiciona ao final do rodapé um parágrafo alinhado à direita com campo IF:
+    Com IF aninhado:
         { IF { NUMPAGES } > 1 "Página { PAGE } de { NUMPAGES }" "" }
-    Resultado:
-        - Documentos com 2+ páginas mostram "Página X de Y" alinhado à direita.
-        - Documentos com 1 página o campo avalia como string vazia (não aparece).
+    Funciona em Word; LibreOffice 7.4 não avalia campos aninhados.
     """
     p = footer.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_el = p._p
 
-    # BEGIN do IF externo
     p_el.append(_fld_char("begin"))
     p_el.append(_instr_text("IF "))
 
-    # NUMPAGES aninhado na condição
     p_el.append(_fld_char("begin"))
     p_el.append(_instr_text("NUMPAGES"))
     p_el.append(_fld_char("end"))
 
-    # Continuação da instrução do IF: > 1 "Página
     p_el.append(_instr_text(' > 1 "Página '))
 
-    # PAGE aninhado no ramo verdadeiro
     p_el.append(_fld_char("begin"))
     p_el.append(_instr_text("PAGE"))
     p_el.append(_fld_char("end"))
 
     p_el.append(_instr_text(" de "))
 
-    # NUMPAGES aninhado no ramo verdadeiro
     p_el.append(_fld_char("begin"))
     p_el.append(_instr_text("NUMPAGES"))
     p_el.append(_fld_char("end"))
 
-    # Fecha o IF: ramo falso vazio
     p_el.append(_instr_text('" ""'))
 
-    # Separador (entre instrução e resultado cacheado)
     p_el.append(_fld_char("separate"))
-
-    # Resultado placeholder (Word/LibreOffice substitui na render)
     p_el.append(_text_run(""))
-
-    # END do IF externo
     p_el.append(_fld_char("end"))
 
 
@@ -120,32 +127,40 @@ def _section_has_different_first_page(section) -> bool:
     return sect_pr.find(qn("w:titlePg")) is not None
 
 
-def _add_impl(docx_bytes: bytes) -> bytes:
+def _add(docx_bytes: bytes, append_fn) -> bytes:
     doc = Document(BytesIO(docx_bytes))
 
     for section in doc.sections:
         footer = section.footer
         if not _footer_has_page_field(footer):
-            _append_page_paragraph(footer)
+            append_fn(footer)
 
-        # Quando a seção tem primeira página diferente, o footer default
-        # não cobre a página 1 — precisa adicionar no first_page_footer também.
         if _section_has_different_first_page(section):
             first_footer = section.first_page_footer
             if not _footer_has_page_field(first_footer):
-                _append_page_paragraph(first_footer)
+                append_fn(first_footer)
 
     out = BytesIO()
     doc.save(out)
     return out.getvalue()
 
 
-def add_page_numbering(docx_bytes: bytes) -> bytes:
-    """
-    Adiciona 'Página X de Y' centralizado ao final do rodapé de cada seção.
-    Em caso de erro, retorna os bytes originais para não quebrar o pipeline.
-    """
+def add_page_numbering_simple(docx_bytes: bytes) -> bytes:
+    """Injeta 'Página X de Y' sempre visível. Use após detectar multi-página."""
     try:
-        return _add_impl(docx_bytes)
+        return _add(docx_bytes, _append_simple_paragraph)
     except Exception:
         return docx_bytes
+
+
+def add_page_numbering_conditional(docx_bytes: bytes) -> bytes:
+    """Injeta IF que esconde em página única. Para Word; LibreOffice < 7.5 não avalia."""
+    try:
+        return _add(docx_bytes, _append_conditional_paragraph)
+    except Exception:
+        return docx_bytes
+
+
+# Mantém retrocompat com call existente que usa add_page_numbering — defaulta
+# para o conditional (caso .docx que abre no Word).
+add_page_numbering = add_page_numbering_conditional

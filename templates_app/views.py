@@ -19,7 +19,10 @@ from .utils_jinja import analyze_jinja_docx
 from .docx_jinja_normalizer import normalize_docx_jinja_runs
 from .docx_cleaner import strip_blank_pages
 from .docx_style_flattener import flatten_inherited_formatting
-from .docx_page_numbering import add_page_numbering
+from .docx_page_numbering import (
+    add_page_numbering_simple,
+    add_page_numbering_conditional,
+)
 
 # Import extra
 from cadastro.models import Cliente, DescricaoBanco
@@ -136,6 +139,29 @@ class TemplateViewSet(viewsets.ModelViewSet):
 
             return pdf_path.read_bytes()
 
+    def _count_pdf_pages(self, pdf_bytes: bytes) -> int:
+        from pypdf import PdfReader
+        reader = PdfReader(BytesIO(pdf_bytes))
+        return len(reader.pages)
+
+    def _convert_with_conditional_page_numbering(self, docx_bytes: bytes) -> bytes:
+        """
+        Converte .docx para PDF aplicando 'Página X de Y' apenas quando
+        houver mais de uma página. Estratégia: converte uma vez sem
+        numeração; se o PDF tem 1 página, devolve direto. Se >1, injeta
+        a numeração no .docx e re-converte. Necessária porque o IF field
+        do OOXML não é avaliado corretamente pelo LibreOffice 7.4.
+        """
+        pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
+        try:
+            page_count = self._count_pdf_pages(pdf_bytes)
+        except Exception:
+            return pdf_bytes
+        if page_count <= 1:
+            return pdf_bytes
+        numbered = add_page_numbering_simple(docx_bytes)
+        return self._convert_docx_bytes_to_pdf(numbered)
+
     @action(detail=False, methods=["post"])
     def compose(self, request):
         """Combina múltiplos .docx em um único documento com quebra de página entre cada."""
@@ -147,7 +173,8 @@ class TemplateViewSet(viewsets.ModelViewSet):
             )
         try:
             docx_bytes = self._compose_docx_files(files)
-            docx_bytes = add_page_numbering(docx_bytes)
+            # IF condicional funciona quando o usuário abre no Word
+            docx_bytes = add_page_numbering_conditional(docx_bytes)
             response = HttpResponse(
                 docx_bytes,
                 content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -176,7 +203,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
             docx_bytes = b"".join(chunk for chunk in file.chunks())
             # Materializa formatação herdada de estilos antes da conversão
             docx_bytes = flatten_inherited_formatting(docx_bytes)
-            pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
+            pdf_bytes = self._convert_with_conditional_page_numbering(docx_bytes)
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
             return response
@@ -218,8 +245,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 flattened_files.append(BytesIO(flatten_inherited_formatting(content)))
 
             docx_bytes = self._compose_docx_files(flattened_files)
-            docx_bytes = add_page_numbering(docx_bytes)
-            pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
+            pdf_bytes = self._convert_with_conditional_page_numbering(docx_bytes)
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
             return response
@@ -369,7 +395,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 buf = strip_blank_pages(buf)
             except Exception:
                 buf.seek(0)
-            return add_page_numbering(buf.read()), None
+            return buf.read(), None
         except Exception as exc:
             return None, Response(
                 {"detail": str(exc)},
@@ -389,6 +415,10 @@ class TemplateViewSet(viewsets.ModelViewSet):
         docx_bytes, error = self._build_docx_bytes(tpl, context, cliente_id)
         if error is not None:
             return error
+
+        # IF condicional só funciona quando o usuário abre no Word.
+        # Single-page Word esconde corretamente; LibreOffice 7.4 não avalia.
+        docx_bytes = add_page_numbering_conditional(docx_bytes)
 
         safe_fn = iri_to_uri(f"{filename}.docx")
         resp = HttpResponse(
@@ -413,7 +443,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
         try:
             # Materializa formatação herdada de estilos para o LibreOffice render igual ao Word
             docx_bytes = flatten_inherited_formatting(docx_bytes)
-            pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
+            pdf_bytes = self._convert_with_conditional_page_numbering(docx_bytes)
         except RuntimeError as exc:
             return Response(
                 {"detail": str(exc)},
