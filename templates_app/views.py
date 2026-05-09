@@ -19,6 +19,7 @@ from .utils_jinja import analyze_jinja_docx
 from .docx_jinja_normalizer import normalize_docx_jinja_runs
 from .docx_cleaner import strip_blank_pages
 from .docx_style_flattener import flatten_inherited_formatting
+from .docx_page_numbering import add_page_numbering
 
 # Import extra
 from cadastro.models import Cliente, DescricaoBanco
@@ -146,6 +147,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
             )
         try:
             docx_bytes = self._compose_docx_files(files)
+            docx_bytes = add_page_numbering(docx_bytes)
             response = HttpResponse(
                 docx_bytes,
                 content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -216,6 +218,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 flattened_files.append(BytesIO(flatten_inherited_formatting(content)))
 
             docx_bytes = self._compose_docx_files(flattened_files)
+            docx_bytes = add_page_numbering(docx_bytes)
             pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
@@ -366,7 +369,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 buf = strip_blank_pages(buf)
             except Exception:
                 buf.seek(0)
-            return buf.read(), None
+            return add_page_numbering(buf.read()), None
         except Exception as exc:
             return None, Response(
                 {"detail": str(exc)},
