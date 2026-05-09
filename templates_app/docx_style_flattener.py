@@ -27,6 +27,22 @@ W = "{" + W_NS + "}"
 # na conversão LibreOffice
 TRACKED_PROPS = ("b", "i", "u", "caps", "smallCaps", "strike")
 
+# Famílias de fonte cujo NOME já carrega o peso (Word renderiza como bold/heavy
+# pelo glyph da fonte, não por <w:b/>). Quando a fonte cai num fallback no
+# LibreOffice, o peso some — então marcamos <w:b/> direto no run para garantir
+# negrito mesmo após substituição.
+BOLD_FONT_KEYWORDS = (
+    "black",
+    "heavy",
+    "ultra",       # cobre UltraBold, Ultra Black
+    "extrabold",
+    "extra bold",
+    "demibold",
+    "demi bold",
+    "semibold",
+    "semi bold",
+)
+
 
 def _is_truthy_val(val):
     """No OOXML, presença de <w:b/> significa True. <w:b w:val="0"/> ou
@@ -43,6 +59,22 @@ def _read_rpr_props(rpr):
         if el is not None:
             out[prop] = _is_truthy_val(el.get(f"{W}val"))
     return out
+
+
+def _font_implies_bold(rpr):
+    """Detecta famílias de fonte cujo NOME indica peso heavy/black.
+    Word usa o glyph da fonte para o negrito, sem <w:b/>. No LibreOffice
+    a fonte é substituída e o peso some — sinal para forçar bold."""
+    if rpr is None:
+        return False
+    rfonts = rpr.find(f"{W}rFonts")
+    if rfonts is None:
+        return False
+    for attr in ("ascii", "hAnsi", "cs", "eastAsia"):
+        name = rfonts.get(f"{W}{attr}")
+        if name and any(kw in name.lower() for kw in BOLD_FONT_KEYWORDS):
+            return True
+    return False
 
 
 def _resolve_style_chain(style_id, styles_root):
@@ -131,6 +163,11 @@ def _process_xml_root(root, styles_root, defaults):
             effective.update(p_level_props)
             effective.update(r_style_props)
             effective.update(r_direct_props)
+
+            # Fonte com peso no nome (Segoe UI Black, Arial Heavy, etc.) implica
+            # negrito mesmo sem <w:b/> — Word usa o glyph; LibreOffice perde no fallback.
+            if _font_implies_bold(rpr) and "b" not in r_direct_props:
+                effective["b"] = True
 
             for prop, val in effective.items():
                 if val and prop not in r_direct_props:
