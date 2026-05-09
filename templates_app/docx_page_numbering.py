@@ -39,37 +39,80 @@ def _footer_has_page_field(footer) -> bool:
     return "NUMPAGES" in xml
 
 
-def _make_text_run(text: str):
+def _make_run_with_child(child):
     r = OxmlElement("w:r")
-    t = OxmlElement("w:t")
-    t.text = text
-    if text != text.strip():
-        t.set(qn("xml:space"), "preserve")
-    r.append(t)
+    r.append(child)
     return r
 
 
-def _make_simple_field(instr: str):
-    """<w:fldSimple w:instr=" PAGE "> com run placeholder dentro."""
-    fld = OxmlElement("w:fldSimple")
-    fld.set(qn("w:instr"), f" {instr} ")
-    r = OxmlElement("w:r")
+def _fld_char(char_type: str):
+    fc = OxmlElement("w:fldChar")
+    fc.set(qn("w:fldCharType"), char_type)
+    return _make_run_with_child(fc)
+
+
+def _instr_text(text: str):
+    it = OxmlElement("w:instrText")
+    it.set(qn("xml:space"), "preserve")
+    it.text = text
+    return _make_run_with_child(it)
+
+
+def _text_run(text: str):
     t = OxmlElement("w:t")
-    t.text = "1"
-    r.append(t)
-    fld.append(r)
-    return fld
+    t.text = text
+    if text != text.strip() or not text:
+        t.set(qn("xml:space"), "preserve")
+    return _make_run_with_child(t)
 
 
 def _append_page_paragraph(footer):
-    """Adiciona ao final do rodapé um parágrafo alinhado à direita: 'Página PAGE de NUMPAGES'."""
+    """
+    Adiciona ao final do rodapé um parágrafo alinhado à direita com campo IF:
+        { IF { NUMPAGES } > 1 "Página { PAGE } de { NUMPAGES }" "" }
+    Resultado:
+        - Documentos com 2+ páginas mostram "Página X de Y" alinhado à direita.
+        - Documentos com 1 página o campo avalia como string vazia (não aparece).
+    """
     p = footer.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_el = p._p
-    p_el.append(_make_text_run("Página "))
-    p_el.append(_make_simple_field("PAGE"))
-    p_el.append(_make_text_run(" de "))
-    p_el.append(_make_simple_field("NUMPAGES"))
+
+    # BEGIN do IF externo
+    p_el.append(_fld_char("begin"))
+    p_el.append(_instr_text("IF "))
+
+    # NUMPAGES aninhado na condição
+    p_el.append(_fld_char("begin"))
+    p_el.append(_instr_text("NUMPAGES"))
+    p_el.append(_fld_char("end"))
+
+    # Continuação da instrução do IF: > 1 "Página
+    p_el.append(_instr_text(' > 1 "Página '))
+
+    # PAGE aninhado no ramo verdadeiro
+    p_el.append(_fld_char("begin"))
+    p_el.append(_instr_text("PAGE"))
+    p_el.append(_fld_char("end"))
+
+    p_el.append(_instr_text(" de "))
+
+    # NUMPAGES aninhado no ramo verdadeiro
+    p_el.append(_fld_char("begin"))
+    p_el.append(_instr_text("NUMPAGES"))
+    p_el.append(_fld_char("end"))
+
+    # Fecha o IF: ramo falso vazio
+    p_el.append(_instr_text('" ""'))
+
+    # Separador (entre instrução e resultado cacheado)
+    p_el.append(_fld_char("separate"))
+
+    # Resultado placeholder (Word/LibreOffice substitui na render)
+    p_el.append(_text_run(""))
+
+    # END do IF externo
+    p_el.append(_fld_char("end"))
 
 
 def _section_has_different_first_page(section) -> bool:
