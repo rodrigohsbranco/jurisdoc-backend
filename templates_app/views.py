@@ -246,35 +246,35 @@ class TemplateViewSet(viewsets.ModelViewSet):
             "invalid_prints": info["invalid_prints"],
         })
 
-    @action(detail=True, methods=["post"])
-    def render(self, request, pk=None):
+    def _build_docx_bytes(self, tpl, context, cliente_id=None):
+        """
+        Renderiza um Template em bytes .docx aplicando pré-validações,
+        pré-preenchimento de cliente e imagem_do_contrato.
+        Retorna (bytes, None) em sucesso ou (None, Response) em erro.
+        """
         if DocxTemplate is None:
-            return Response(
+            return None, Response(
                 {"detail": "Dependência 'docxtpl' não instalada."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        tpl = self.get_object()
         file_path = Path(tpl.file.path)
-
         if not file_path.exists():
-            return Response(
+            return None, Response(
                 {"detail": "Arquivo do template não encontrado no servidor. Faça o upload novamente."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # Bloqueia padrão antigo
         info = analyze_jinja_docx(file_path)
         if info["has_angle"]:
-            return Response(
+            return None, Response(
                 {"detail": "Este template usa '<< >>'. Atualize para Jinja {{ }} antes de renderizar."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Valida sintaxe das variáveis Jinja antes de tentar renderizar
         invalid_prints = info["invalid_prints"]
         if invalid_prints:
-            return Response(
+            return None, Response(
                 {
                     "detail": "Foram encontradas expressões Jinja inválidas no template. "
                               "Verifique a sintaxe das variáveis destacadas em 'invalid_prints'.",
@@ -283,17 +283,11 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        context = request.data.get("context") or {}
-        filename = (request.data.get("filename") or tpl.name).strip() or "documento"
-
-        # 🔥 Novo: pré-preenchimento automático se cliente_id for enviado
-        cliente_id = request.data.get("cliente_id")
         if cliente_id:
             try:
                 cliente = Cliente.objects.get(pk=cliente_id)
                 conta_principal = cliente.contas.filter(is_principal=True).first()
                 if conta_principal:
-                    # tenta buscar descrição ativa
                     desc = DescricaoBanco.objects.filter(
                         banco_nome=conta_principal.banco_nome,
                         is_ativa=True
@@ -305,42 +299,30 @@ class TemplateViewSet(viewsets.ModelViewSet):
                     else:
                         context.setdefault("banco", conta_principal.banco_nome)
 
-                    # Também podemos preencher outros campos básicos do cliente
                     context.setdefault("nome_completo", cliente.nome_completo)
                     context.setdefault("cpf", cliente.cpf)
                     context.setdefault("cidade", cliente.cidade)
             except Cliente.DoesNotExist:
                 pass
 
+        normalized_path = None
         try:
             normalized_path = normalize_docx_jinja_runs(file_path)
             doc = DocxTemplate(str(normalized_path))
             env = build_env()
 
-            # Trata imagem_do_contrato enviada no context como PATH salvo em MEDIA_ROOT.
-            # Ex.: MEDIA_ROOT pode ser /media_data (Docker) → arquivos em /media_data/contratos/
-            # URL esperada no JSON: "/media/contratos/nome_da_imagem.png"
+            # imagem_do_contrato: caminho relativo a MEDIA_ROOT ("/media/..." ou "media/...")
             img_key = "imagem_do_contrato"
             img_val = context.get(img_key)
-
             if InlineImage is not None and isinstance(img_val, str) and img_val.strip():
                 raw_path = img_val.strip()
-
-                # Remove prefixos "/media/" ou "media/" se existirem
                 if raw_path.startswith("/media/"):
                     raw_path = raw_path[len("/media/") :]
                 elif raw_path.startswith("media/"):
                     raw_path = raw_path[len("media/") :]
-
-                # Caminho absoluto em MEDIA_ROOT
                 full_path = Path(settings.MEDIA_ROOT) / raw_path
-
                 if full_path.exists():
-                    context[img_key] = InlineImage(
-                        doc,
-                        str(full_path),
-                        width=Mm(80),  # ajuste do tamanho da imagem no documento
-                    )
+                    context[img_key] = InlineImage(doc, str(full_path), width=Mm(80))
 
             doc.render(context, jinja_env=env)
 
@@ -351,20 +333,67 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 buf = strip_blank_pages(buf)
             except Exception:
                 buf.seek(0)
-
-            safe_fn = iri_to_uri(f"{filename}.docx")
-            resp = HttpResponse(
-                buf.read(),
-                content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            )
-            resp["Content-Disposition"] = f'attachment; filename="{safe_fn}"'
-            return resp
-
+            return buf.read(), None
         except Exception as exc:
-            return Response(
+            return None, Response(
                 {"detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         finally:
-            if "normalized_path" in locals():
+            if normalized_path is not None:
                 normalized_path.unlink(missing_ok=True)
+
+    @action(detail=True, methods=["post"])
+    def render(self, request, pk=None):
+        tpl = self.get_object()
+        context = request.data.get("context") or {}
+        filename = (request.data.get("filename") or tpl.name).strip() or "documento"
+        cliente_id = request.data.get("cliente_id")
+
+        docx_bytes, error = self._build_docx_bytes(tpl, context, cliente_id)
+        if error is not None:
+            return error
+
+        safe_fn = iri_to_uri(f"{filename}.docx")
+        resp = HttpResponse(
+            docx_bytes,
+            content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        resp["Content-Disposition"] = f'attachment; filename="{safe_fn}"'
+        return resp
+
+    @action(detail=True, methods=["post"], url_path="render-pdf")
+    def render_pdf(self, request, pk=None):
+        """Mesmo do /render/ mas converte o resultado para PDF via LibreOffice headless."""
+        tpl = self.get_object()
+        context = request.data.get("context") or {}
+        filename = (request.data.get("filename") or tpl.name).strip() or "documento"
+        cliente_id = request.data.get("cliente_id")
+
+        docx_bytes, error = self._build_docx_bytes(tpl, context, cliente_id)
+        if error is not None:
+            return error
+
+        try:
+            pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
+        except RuntimeError as exc:
+            return Response(
+                {"detail": str(exc)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except subprocess.TimeoutExpired:
+            return Response(
+                {"detail": "Conversão para PDF excedeu o tempo limite."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except FileNotFoundError:
+            return Response(
+                {"detail": "LibreOffice não encontrado no servidor. Instale o pacote 'libreoffice' para converter para PDF."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        safe_fn = iri_to_uri(f"{filename}.pdf")
+        resp = HttpResponse(pdf_bytes, content_type="application/pdf")
+        # inline: navegador exibe no iframe; o front força download via blob quando precisar
+        resp["Content-Disposition"] = f'inline; filename="{safe_fn}"'
+        return resp
