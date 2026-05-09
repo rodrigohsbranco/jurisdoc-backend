@@ -62,9 +62,9 @@ def _make_simple_field(instr: str):
 
 
 def _append_page_paragraph(footer):
-    """Adiciona ao final do rodapé um parágrafo centralizado: 'Página PAGE de NUMPAGES'."""
+    """Adiciona ao final do rodapé um parágrafo alinhado à direita: 'Página PAGE de NUMPAGES'."""
     p = footer.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_el = p._p
     p_el.append(_make_text_run("Página "))
     p_el.append(_make_simple_field("PAGE"))
