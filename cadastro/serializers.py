@@ -92,6 +92,7 @@ class ClienteSerializer(serializers.ModelSerializer):
             "nome_titular_numero",
             "relacao_titular_tipo",
             "relacao_titular",
+            "telefones_extras",
             # Documentos pessoais
             "documentos_pessoais",
             # Benefícios

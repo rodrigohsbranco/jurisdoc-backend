@@ -83,12 +83,18 @@ class Cliente(models.Model):
     responsavel_imovel_cpf = models.CharField(max_length=11, blank=True)
     responsavel_imovel_doc = models.FileField(upload_to="clientes/comprovantes/", blank=True)
 
-    # Contato
+    # Contato — telefone primário (legacy single fields, mantidos para compat)
     telefone = models.CharField(max_length=20, blank=True)
     titular_contato = models.CharField(max_length=3, blank=True)  # sim/nao
     nome_titular_numero = models.CharField(max_length=200, blank=True)
     relacao_titular_tipo = models.CharField(max_length=20, blank=True)  # pai_mae/filho_a/irmao_a/conjuge/outro
     relacao_titular = models.CharField(max_length=100, blank=True)  # quando tipo='outro'
+    # Telefones adicionais — cada item: {numero, titular_contato, nome_titular_numero, relacao_titular_tipo, relacao_titular}
+    telefones_extras = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Telefones adicionais. Cada item: {numero, titular_contato, nome_titular_numero, relacao_titular_tipo, relacao_titular}',
+    )
     genero = models.CharField(max_length=15, blank=True)  # masculino/feminino
 
     # Documentos pessoais (RG, CPF, CNH, etc.) — array de paths relativos ao MEDIA_ROOT
