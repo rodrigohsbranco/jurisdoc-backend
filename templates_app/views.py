@@ -18,6 +18,7 @@ from .serializers import TemplateSerializer
 from .utils_jinja import analyze_jinja_docx
 from .docx_jinja_normalizer import normalize_docx_jinja_runs
 from .docx_cleaner import strip_blank_pages
+from .docx_style_flattener import flatten_inherited_formatting
 
 # Import extra
 from cadastro.models import Cliente, DescricaoBanco
@@ -171,6 +172,8 @@ class TemplateViewSet(viewsets.ModelViewSet):
 
         try:
             docx_bytes = b"".join(chunk for chunk in file.chunks())
+            # Materializa formatação herdada de estilos antes da conversão
+            docx_bytes = flatten_inherited_formatting(docx_bytes)
             pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
@@ -204,7 +207,15 @@ class TemplateViewSet(viewsets.ModelViewSet):
         filename = request.data.get("filename", "documentos")
 
         try:
-            docx_bytes = self._compose_docx_files(files)
+            # Flatten cada arquivo antes de compor: cada entrada vira self-contained
+            # (formatação direta em cada run), garantindo render correto pelo
+            # LibreOffice mesmo após a perda da styles.xml original na composição.
+            flattened_files = []
+            for f in files:
+                content = b"".join(chunk for chunk in f.chunks())
+                flattened_files.append(BytesIO(flatten_inherited_formatting(content)))
+
+            docx_bytes = self._compose_docx_files(flattened_files)
             pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
@@ -397,6 +408,8 @@ class TemplateViewSet(viewsets.ModelViewSet):
             return error
 
         try:
+            # Materializa formatação herdada de estilos para o LibreOffice render igual ao Word
+            docx_bytes = flatten_inherited_formatting(docx_bytes)
             pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
         except RuntimeError as exc:
             return Response(
