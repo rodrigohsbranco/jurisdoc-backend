@@ -15,6 +15,14 @@ class Advogado(models.Model):
     escritorio_nome = models.CharField(max_length=200, blank=True, help_text="Nome do escritório individual (não-sócios)")
     escritorio_cnpj = models.CharField(max_length=20, blank=True, help_text="CNPJ do escritório individual")
     escritorio_endereco = models.TextField(blank=True, help_text="Endereço completo do escritório individual")
+    # Tipos de ação em que o advogado atua. Vazio ou contendo 'todas' = atua em
+    # todas. Caso contrário, só entra em documentos cujo kit tenha alguma ação
+    # desse tipo.
+    tipos_acao = models.JSONField(
+        default=list,
+        blank=True,
+        help_text="Lista de tipos de ação (ex.: ['tarifa_bancaria', 'rmc']) ou ['todas']. Vazio = atua em todas.",
+    )
     ativo = models.BooleanField(default=True)
 
     criado_em = models.DateTimeField(auto_now_add=True)
