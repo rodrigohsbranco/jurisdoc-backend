@@ -35,6 +35,15 @@ except Exception:
     InlineImage = None
 
 
+def _truthy(v) -> bool:
+    """Aceita true/'true'/'1'/1 — útil pra flags vindas de FormData (sempre string)."""
+    if v is True:
+        return True
+    if v in (1, "1", "true", "True"):
+        return True
+    return False
+
+
 class TemplateViewSet(viewsets.ModelViewSet):
     """
     CRUD de Templates + utilitários Jinja-only:
@@ -171,10 +180,11 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 {"detail": "Envie pelo menos 2 arquivos .docx."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        skip_pages = _truthy(request.data.get("skip_page_numbering"))
         try:
             docx_bytes = self._compose_docx_files(files)
-            # IF condicional funciona quando o usuário abre no Word
-            docx_bytes = add_page_numbering_conditional(docx_bytes)
+            if not skip_pages:
+                docx_bytes = add_page_numbering_conditional(docx_bytes)
             response = HttpResponse(
                 docx_bytes,
                 content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -198,12 +208,16 @@ class TemplateViewSet(viewsets.ModelViewSet):
             )
 
         filename = request.data.get("filename", "documento")
+        skip_pages = _truthy(request.data.get("skip_page_numbering"))
 
         try:
             docx_bytes = b"".join(chunk for chunk in file.chunks())
             # Materializa formatação herdada de estilos antes da conversão
             docx_bytes = flatten_inherited_formatting(docx_bytes)
-            pdf_bytes = self._convert_with_conditional_page_numbering(docx_bytes)
+            if skip_pages:
+                pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
+            else:
+                pdf_bytes = self._convert_with_conditional_page_numbering(docx_bytes)
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
             return response
@@ -235,6 +249,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
 
         filename = request.data.get("filename", "documentos")
 
+        skip_pages = _truthy(request.data.get("skip_page_numbering"))
         try:
             # Flatten cada arquivo antes de compor: cada entrada vira self-contained
             # (formatação direta em cada run), garantindo render correto pelo
@@ -245,7 +260,10 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 flattened_files.append(BytesIO(flatten_inherited_formatting(content)))
 
             docx_bytes = self._compose_docx_files(flattened_files)
-            pdf_bytes = self._convert_with_conditional_page_numbering(docx_bytes)
+            if skip_pages:
+                pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
+            else:
+                pdf_bytes = self._convert_with_conditional_page_numbering(docx_bytes)
             response = HttpResponse(pdf_bytes, content_type="application/pdf")
             response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
             return response
@@ -416,9 +434,10 @@ class TemplateViewSet(viewsets.ModelViewSet):
         if error is not None:
             return error
 
-        # IF condicional só funciona quando o usuário abre no Word.
-        # Single-page Word esconde corretamente; LibreOffice 7.4 não avalia.
-        docx_bytes = add_page_numbering_conditional(docx_bytes)
+        if not _truthy(request.data.get("skip_page_numbering")):
+            # IF condicional só funciona quando o usuário abre no Word.
+            # Single-page Word esconde corretamente; LibreOffice 7.4 não avalia.
+            docx_bytes = add_page_numbering_conditional(docx_bytes)
 
         safe_fn = iri_to_uri(f"{filename}.docx")
         resp = HttpResponse(
@@ -435,6 +454,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
         context = request.data.get("context") or {}
         filename = (request.data.get("filename") or tpl.name).strip() or "documento"
         cliente_id = request.data.get("cliente_id")
+        skip_pages = _truthy(request.data.get("skip_page_numbering"))
 
         docx_bytes, error = self._build_docx_bytes(tpl, context, cliente_id)
         if error is not None:
@@ -443,7 +463,10 @@ class TemplateViewSet(viewsets.ModelViewSet):
         try:
             # Materializa formatação herdada de estilos para o LibreOffice render igual ao Word
             docx_bytes = flatten_inherited_formatting(docx_bytes)
-            pdf_bytes = self._convert_with_conditional_page_numbering(docx_bytes)
+            if skip_pages:
+                pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
+            else:
+                pdf_bytes = self._convert_with_conditional_page_numbering(docx_bytes)
         except RuntimeError as exc:
             return Response(
                 {"detail": str(exc)},
