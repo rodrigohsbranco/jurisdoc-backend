@@ -99,16 +99,38 @@ class TemplateViewSet(viewsets.ModelViewSet):
             input_path = Path(tmpdir) / "input.docx"
             input_path.write_bytes(docx_bytes)
 
-            subprocess.run(
-                ["libreoffice", "--headless", "--convert-to", "pdf", "--outdir", tmpdir, str(input_path)],
+            # UserInstallation isolado por chamada: LibreOffice trava ao rodar
+            # em paralelo com o mesmo profile (~/.config/libreoffice). Cada
+            # conversão precisa do seu profile próprio.
+            profile_dir = Path(tmpdir) / "profile"
+            profile_dir.mkdir()
+            user_install = f"-env:UserInstallation=file://{profile_dir}"
+
+            result = subprocess.run(
+                [
+                    "libreoffice",
+                    user_install,
+                    "--headless",
+                    "--norestore",
+                    "--nolockcheck",
+                    "--nodefault",
+                    "--convert-to", "pdf",
+                    "--outdir", tmpdir,
+                    str(input_path),
+                ],
                 capture_output=True,
-                timeout=30,
+                timeout=60,
                 check=False,
             )
 
             pdf_path = Path(tmpdir) / "input.pdf"
             if not pdf_path.exists():
-                raise RuntimeError("Falha na conversão para PDF. Verifique se o LibreOffice está instalado.")
+                stderr = (result.stderr or b"").decode("utf-8", errors="replace").strip()
+                stdout = (result.stdout or b"").decode("utf-8", errors="replace").strip()
+                detail = stderr or stdout or "saída vazia"
+                raise RuntimeError(
+                    f"Falha na conversão para PDF (exit={result.returncode}): {detail[:500]}"
+                )
 
             return pdf_path.read_bytes()
 
