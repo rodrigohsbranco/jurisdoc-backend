@@ -13,6 +13,7 @@ class OabUfSerializer(serializers.ModelSerializer):
             "numero_oab",
             "unidade_apoio_nome",
             "unidade_apoio_endereco",
+            "tipos_acao",
         ]
         read_only_fields = ["id", "advogado"]
 
@@ -32,7 +33,6 @@ class AdvogadoListSerializer(serializers.ModelSerializer):
             "escritorio_nome",
             "escritorio_cnpj",
             "escritorio_endereco",
-            "tipos_acao",
             "ativo",
             "total_ufs",
             "criado_em",
@@ -55,7 +55,6 @@ class AdvogadoDetailSerializer(serializers.ModelSerializer):
             "escritorio_nome",
             "escritorio_cnpj",
             "escritorio_endereco",
-            "tipos_acao",
             "ativo",
             "oabs",
             "criado_em",

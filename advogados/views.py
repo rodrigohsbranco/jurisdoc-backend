@@ -60,7 +60,7 @@ class AdvogadoViewSet(viewsets.ModelViewSet):
                 "is_socio": adv.is_socio,
                 "escritorio_nome": adv.escritorio_nome,
                 "escritorio_cnpj": adv.escritorio_cnpj,
-                "tipos_acao": adv.tipos_acao or [],
+                "tipos_acao": (oab.tipos_acao if oab else None) or [],
                 "numero_oab": oab.numero_oab if oab else "",
                 "unidade_apoio_nome": oab.unidade_apoio_nome if oab else "",
                 "unidade_apoio_endereco": oab.unidade_apoio_endereco if oab else "",
