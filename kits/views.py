@@ -242,6 +242,7 @@ class BancoKitViewSet(viewsets.ModelViewSet):
     search_fields = ["nome"]
     ordering_fields = ["nome", "ordem"]
     ordering = ["ordem", "nome"]
+    pagination_class = None
 
     def get_permissions(self):
         if self.action in ("list", "retrieve"):
@@ -256,6 +257,7 @@ class TarifaKitViewSet(viewsets.ModelViewSet):
     search_fields = ["nome"]
     ordering_fields = ["nome", "ordem"]
     ordering = ["ordem", "nome"]
+    pagination_class = None
 
     def get_permissions(self):
         if self.action in ("list", "retrieve"):
