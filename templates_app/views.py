@@ -379,7 +379,9 @@ class TemplateViewSet(viewsets.ModelViewSet):
                     else:
                         context.setdefault("banco", conta_principal.banco_nome)
 
-                    context.setdefault("nome_completo", cliente.nome_completo)
+                    nome_upper = (cliente.nome_completo or "").upper()
+                    context.setdefault("nome_completo", nome_upper)
+                    context.setdefault("nome_cliente", nome_upper)
                     context.setdefault("cpf", cliente.cpf)
                     context.setdefault("cidade", cliente.cidade)
             except Cliente.DoesNotExist:
