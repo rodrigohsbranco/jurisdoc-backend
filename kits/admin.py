@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AcaoKit, DocumentoKit, Kit
+from .models import AcaoKit, AssociacaoKit, BancoKit, DocumentoKit, Kit, TarifaKit
 
 
 class AcaoKitInline(admin.TabularInline):
@@ -38,3 +38,11 @@ class DocumentoKitAdmin(admin.ModelAdmin):
     list_filter = ["tipo"]
     raw_id_fields = ["kit"]
     readonly_fields = ["gerado_em"]
+
+
+@admin.register(AssociacaoKit)
+class AssociacaoKitAdmin(admin.ModelAdmin):
+    list_display = ["id", "nome", "abreviacao", "ativo", "ordem"]
+    list_filter = ["ativo"]
+    search_fields = ["nome", "abreviacao"]
+    ordering = ["ordem", "nome"]

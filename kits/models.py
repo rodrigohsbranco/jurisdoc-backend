@@ -86,6 +86,14 @@ class AcaoKit(models.Model):
     historico_credito_arquivos = models.JSONField(default=list, blank=True)
     extrato_bancario_arquivos = models.JSONField(default=list, blank=True)
 
+    associacao = models.ForeignKey(
+        "AssociacaoKit",
+        on_delete=models.SET_NULL,
+        related_name="acoes",
+        null=True,
+        blank=True,
+    )
+
     class Meta:
         verbose_name = "Ação do Kit"
         verbose_name_plural = "Ações do Kit"
@@ -149,3 +157,18 @@ class TarifaKit(models.Model):
 
     def __str__(self):
         return self.nome
+
+
+class AssociacaoKit(models.Model):
+    nome = models.CharField(max_length=200, unique=True)
+    abreviacao = models.CharField(max_length=30, blank=True)
+    ativo = models.BooleanField(default=True)
+    ordem = models.IntegerField(default=0)
+
+    class Meta:
+        verbose_name = "Associação"
+        verbose_name_plural = "Associações"
+        ordering = ["ordem", "nome"]
+
+    def __str__(self):
+        return self.abreviacao or self.nome

@@ -3,7 +3,7 @@ from rest_framework import serializers
 
 from cadastro.media_paths import build_media_file_url
 from cadastro.serializers import ClienteSerializer
-from .models import AcaoKit, BancoKit, DocumentoKit, Kit, TarifaKit
+from .models import AcaoKit, AssociacaoKit, BancoKit, DocumentoKit, Kit, TarifaKit
 
 
 class AcaoKitSerializer(serializers.ModelSerializer):
@@ -197,6 +197,7 @@ class AcaoKitSerializer(serializers.ModelSerializer):
             "tarifa_questionada_outro",
             "tipo_seguro",
             "tipo_contribuicao",
+            "associacao",
             "historico_emprestimo",
             "historico_credito",
             "extrato_bancario",
@@ -301,4 +302,11 @@ class TarifaKitSerializer(serializers.ModelSerializer):
     class Meta:
         model = TarifaKit
         fields = ["id", "nome", "ativo", "ordem"]
+        read_only_fields = ["id"]
+
+
+class AssociacaoKitSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AssociacaoKit
+        fields = ["id", "nome", "abreviacao", "ativo", "ordem"]
         read_only_fields = ["id"]

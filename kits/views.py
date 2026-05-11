@@ -7,9 +7,10 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
 from accounts.permissions import IsAdmin
-from .models import AcaoKit, BancoKit, Kit, TarifaKit
+from .models import AcaoKit, AssociacaoKit, BancoKit, Kit, TarifaKit
 from .serializers import (
     AcaoKitSerializer,
+    AssociacaoKitSerializer,
     BancoKitSerializer,
     KitCreateSerializer,
     KitDetailSerializer,
@@ -256,6 +257,21 @@ class TarifaKitViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["nome"]
     ordering_fields = ["nome", "ordem"]
+    ordering = ["ordem", "nome"]
+    pagination_class = None
+
+    def get_permissions(self):
+        if self.action in ("list", "retrieve"):
+            return [permissions.IsAuthenticated()]
+        return [permissions.IsAuthenticated(), IsAdmin()]
+
+
+class AssociacaoKitViewSet(viewsets.ModelViewSet):
+    queryset = AssociacaoKit.objects.all()
+    serializer_class = AssociacaoKitSerializer
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ["nome", "abreviacao"]
+    ordering_fields = ["nome", "abreviacao", "ordem"]
     ordering = ["ordem", "nome"]
     pagination_class = None
 
