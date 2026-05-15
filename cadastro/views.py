@@ -8,6 +8,7 @@ from rest_framework import viewsets, permissions, filters, decorators, response,
 from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
 
+from permissoes.permissions import HasCapability
 from .media_paths import build_media_file_url
 from .models import Cliente, ContaBancaria, ContaBancariaReu, DescricaoBanco, Representante, Contrato
 from .filters import ClienteFilter, ContaBancariaFilter, DescricaoBancoFilter
@@ -22,8 +23,22 @@ class IsAdmin(permissions.BasePermission):
 
 class ClienteViewSet(viewsets.ModelViewSet):
     queryset = Cliente.objects.filter(is_active=True).order_by("-criado_em")
-    permission_classes = [permissions.IsAuthenticated]
     serializer_class = None  # setado no get_serializer_class
+
+    def get_permissions(self):
+        return [HasCapability.for_action(self.action, {
+            "list": "clientes.visualizar",
+            "retrieve": "clientes.visualizar",
+            "create": "clientes.criar",
+            "update": "clientes.editar",
+            "partial_update": "clientes.editar",
+            "destroy": "clientes.deletar",
+            "restore": "clientes.restaurar",
+            "upload_docs": "clientes.editar",
+            "remove_doc": "clientes.editar",
+            "upload_related_docs": "clientes.editar",
+            "remove_related_doc": "clientes.editar",
+        })]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ClienteFilter
     search_fields = [
@@ -271,8 +286,17 @@ class ContaBancariaViewSet(viewsets.ModelViewSet):
         .all()
         .order_by("cliente__nome_completo", "banco_nome")
     )
-    permission_classes = [permissions.IsAuthenticated]
     serializer_class = None
+
+    def get_permissions(self):
+        return [HasCapability.for_action(self.action, {
+            "list": "contas.visualizar",
+            "retrieve": "contas.visualizar",
+            "create": "contas.criar",
+            "update": "contas.editar",
+            "partial_update": "contas.editar",
+            "destroy": "contas.deletar",
+        })]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ContaBancariaFilter
     filterset_fields = ["cliente", "banco_nome", "tipo", "is_principal"]
@@ -296,9 +320,21 @@ class DescricaoBancoViewSet(viewsets.ModelViewSet):
       - POST/PATCH /api/cadastro/bancos-descricoes/{id}/set-ativa/→ marca esta como ativa (desativa as demais do mesmo banco)
     """
 
-    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = DescricaoBancoFilter
+
+    def get_permissions(self):
+        return [HasCapability.for_action(self.action, {
+            "list": "bancos_tarifas.visualizar",
+            "retrieve": "bancos_tarifas.visualizar",
+            "lookup": "bancos_tarifas.visualizar",
+            "variacoes": "bancos_tarifas.visualizar",
+            "create": "bancos_tarifas.criar",
+            "update": "bancos_tarifas.editar",
+            "partial_update": "bancos_tarifas.editar",
+            "destroy": "bancos_tarifas.deletar",
+            "set_ativa": "bancos_tarifas.ativar",
+        })]
     search_fields = ["banco_nome", "nome_banco", "cnpj", "endereco", "banco_id"]
     ordering_fields = ["banco_nome", "is_ativa", "atualizado_em", "criado_em"]
 
@@ -398,8 +434,17 @@ class RepresentanteViewSet(viewsets.ModelViewSet):
     - Cópia de endereço do cliente é feita no serializer quando 'usa_endereco_do_cliente=True'.
     """
     queryset = Representante.objects.select_related("cliente").all().order_by("cliente__nome_completo", "nome_completo")
-    permission_classes = [permissions.IsAuthenticated]
     serializer_class = None  # setado no get_serializer_class
+
+    def get_permissions(self):
+        return [HasCapability.for_action(self.action, {
+            "list": "representantes.visualizar",
+            "retrieve": "representantes.visualizar",
+            "create": "representantes.criar",
+            "update": "representantes.editar",
+            "partial_update": "representantes.editar",
+            "destroy": "representantes.deletar",
+        })]
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     # Usamos filterset_fields simples para não depender de um filtro customizado
@@ -443,10 +488,19 @@ class ContaBancariaReuViewSet(viewsets.ModelViewSet):
         ContaBancariaReu.objects.all()
         .order_by("banco_nome")
     )
-    permission_classes = [permissions.IsAuthenticated]
     serializer_class = None
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["banco_nome", "banco_codigo", "cidade", "estado"]
+
+    def get_permissions(self):
+        return [HasCapability.for_action(self.action, {
+            "list": "conta_reu.visualizar",
+            "retrieve": "conta_reu.visualizar",
+            "create": "conta_reu.criar",
+            "update": "conta_reu.editar",
+            "partial_update": "conta_reu.editar",
+            "destroy": "conta_reu.deletar",
+        })]
     search_fields = ["banco_nome", "cnpj", "cidade"]
     ordering_fields = ["banco_nome", "criado_em"]
 
@@ -470,8 +524,19 @@ class ContratoViewSet(viewsets.ModelViewSet):
         .all()
         .order_by("-criado_em")
     )
-    permission_classes = [permissions.IsAuthenticated]
     serializer_class = None
+
+    def get_permissions(self):
+        # Modelo Contrato legado em cadastro (template-based JSON array).
+        # Mapeia para contratos.* — mesmas capacidades do app contracts.
+        return [HasCapability.for_action(self.action, {
+            "list": "contratos.visualizar",
+            "retrieve": "contratos.visualizar",
+            "create": "contratos.criar",
+            "update": "contratos.editar",
+            "partial_update": "contratos.editar",
+            "destroy": "contratos.deletar",
+        })]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ["cliente", "template"]
     search_fields = ["cliente__nome_completo", "template__name"]

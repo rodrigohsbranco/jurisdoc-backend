@@ -4,7 +4,8 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
 
-from accounts.permissions import IsAdmin
+from accounts.permissions import IsAdmin  # noqa: F401 (mantido por compat)
+from permissoes.permissions import HasCapability
 from .models import Advogado, OabUf
 from .serializers import (
     AdvogadoDetailSerializer,
@@ -29,9 +30,15 @@ class AdvogadoViewSet(viewsets.ModelViewSet):
         return AdvogadoDetailSerializer
 
     def get_permissions(self):
-        if self.action == "por_uf":
-            return [permissions.IsAuthenticated()]
-        return [permissions.IsAuthenticated(), IsAdmin()]
+        return [HasCapability.for_action(self.action, {
+            "list": "advogados.visualizar",
+            "retrieve": "advogados.visualizar",
+            "por_uf": "advogados.visualizar",
+            "create": "advogados.criar",
+            "update": "advogados.editar",
+            "partial_update": "advogados.editar",
+            "destroy": "advogados.deletar",
+        })]
 
     @action(detail=False, methods=["get"], url_path="por-uf")
     def por_uf(self, request):
@@ -71,7 +78,17 @@ class AdvogadoViewSet(viewsets.ModelViewSet):
 
 class OabUfViewSet(viewsets.ModelViewSet):
     serializer_class = OabUfSerializer
-    permission_classes = [permissions.IsAuthenticated, IsAdmin]
+
+    def get_permissions(self):
+        # OAB é sub-recurso de Advogado — escreve = editar advogado, ler = visualizar
+        return [HasCapability.for_action(self.action, {
+            "list": "advogados.visualizar",
+            "retrieve": "advogados.visualizar",
+            "create": "advogados.editar",
+            "update": "advogados.editar",
+            "partial_update": "advogados.editar",
+            "destroy": "advogados.editar",
+        })]
 
     def get_queryset(self):
         return OabUf.objects.filter(advogado_id=self.kwargs["advogado_pk"])

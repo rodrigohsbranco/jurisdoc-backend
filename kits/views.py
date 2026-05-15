@@ -6,7 +6,8 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
-from accounts.permissions import IsAdmin
+from accounts.permissions import IsAdmin  # noqa: F401 (mantido por compat)
+from permissoes.permissions import HasCapability
 from .models import AcaoKit, AssociacaoKit, BancoKit, Kit, TarifaKit
 from .serializers import (
     AcaoKitSerializer,
@@ -38,8 +39,24 @@ TRANSICOES_VALIDAS = {
 
 
 class KitViewSet(viewsets.ModelViewSet):
-    permission_classes = [permissions.IsAuthenticated, IsOwnerOrAdmin]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+
+    def get_permissions(self):
+        cap = HasCapability.for_action(self.action, {
+            "list": "kits.visualizar",
+            "retrieve": "kits.visualizar",
+            "create": "kits.criar",
+            "update": "kits.editar",
+            "partial_update": "kits.editar",
+            "destroy": "kits.deletar",
+            "finalizar": "kits.editar",
+            "assinar": "kits.editar",
+            "mudar_status": "kits.editar",
+            "stats": "kits.visualizar",
+        })
+        # Defesa em profundidade: capacidade (request-level) + dono (object-level)
+        return [cap, IsOwnerOrAdmin()]
+
     filterset_fields = ["tipo", "status", "cliente", "criado_por"]
     search_fields = ["cliente__nome_completo", "cliente__cpf"]
     ordering_fields = ["criado_em", "atualizado_em"]
@@ -135,8 +152,21 @@ class KitViewSet(viewsets.ModelViewSet):
 
 class AcaoKitViewSet(viewsets.ModelViewSet):
     serializer_class = AcaoKitSerializer
-    permission_classes = [permissions.IsAuthenticated]
     parser_classes = [JSONParser, MultiPartParser, FormParser]
+
+    def get_permissions(self):
+        # Sub-recurso de Kit — controlado pelas mesmas capacidades de kit.
+        return [HasCapability.for_action(self.action, {
+            "list": "kits.visualizar",
+            "retrieve": "kits.visualizar",
+            "create": "kits.editar",
+            "update": "kits.editar",
+            "partial_update": "kits.editar",
+            "destroy": "kits.editar",
+            "upload_attachments": "kits.editar",
+            "remove_attachment": "kits.editar",
+        })]
+
     DOCS_FIELD_MAP = {
         "historico_emprestimo": "historico_emprestimo_arquivos",
         "historico_credito": "historico_credito_arquivos",
@@ -246,9 +276,14 @@ class BancoKitViewSet(viewsets.ModelViewSet):
     pagination_class = None
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve"):
-            return [permissions.IsAuthenticated()]
-        return [permissions.IsAuthenticated(), IsAdmin()]
+        return [HasCapability.for_action(self.action, {
+            "list": "bancos_tarifas.visualizar",
+            "retrieve": "bancos_tarifas.visualizar",
+            "create": "bancos_tarifas.criar",
+            "update": "bancos_tarifas.editar",
+            "partial_update": "bancos_tarifas.editar",
+            "destroy": "bancos_tarifas.deletar",
+        })]
 
 
 class TarifaKitViewSet(viewsets.ModelViewSet):
@@ -261,9 +296,14 @@ class TarifaKitViewSet(viewsets.ModelViewSet):
     pagination_class = None
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve"):
-            return [permissions.IsAuthenticated()]
-        return [permissions.IsAuthenticated(), IsAdmin()]
+        return [HasCapability.for_action(self.action, {
+            "list": "bancos_tarifas.visualizar",
+            "retrieve": "bancos_tarifas.visualizar",
+            "create": "bancos_tarifas.criar",
+            "update": "bancos_tarifas.editar",
+            "partial_update": "bancos_tarifas.editar",
+            "destroy": "bancos_tarifas.deletar",
+        })]
 
 
 class AssociacaoKitViewSet(viewsets.ModelViewSet):
@@ -276,6 +316,11 @@ class AssociacaoKitViewSet(viewsets.ModelViewSet):
     pagination_class = None
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve"):
-            return [permissions.IsAuthenticated()]
-        return [permissions.IsAuthenticated(), IsAdmin()]
+        return [HasCapability.for_action(self.action, {
+            "list": "bancos_tarifas.visualizar",
+            "retrieve": "bancos_tarifas.visualizar",
+            "create": "bancos_tarifas.criar",
+            "update": "bancos_tarifas.editar",
+            "partial_update": "bancos_tarifas.editar",
+            "destroy": "bancos_tarifas.deletar",
+        })]

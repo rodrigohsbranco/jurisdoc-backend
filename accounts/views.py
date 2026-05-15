@@ -13,7 +13,8 @@ from rest_framework.exceptions import ValidationError
 
 from .models import User
 from .serializers import UserSerializer
-from .permissions import IsAdmin
+from .permissions import IsAdmin  # noqa: F401  (mantido por compat — não usado abaixo)
+from permissoes.permissions import HasCapability
 
 class MeView(APIView):
     permission_classes = [IsAuthenticated]
@@ -66,8 +67,18 @@ class ChangePasswordView(APIView):
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by("username")
     serializer_class = UserSerializer
-    permission_classes = [IsAdmin]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+
+    def get_permissions(self):
+        return [HasCapability.for_action(self.action, {
+            "list": "usuarios.visualizar",
+            "retrieve": "usuarios.visualizar",
+            "create": "usuarios.criar",
+            "update": "usuarios.editar",
+            "partial_update": "usuarios.editar",
+            "destroy": "usuarios.deletar",
+            "set_password": "usuarios.editar",
+        })]
     search_fields = ["username", "email", "first_name", "last_name"]
     ordering_fields = ["username", "date_joined", "is_admin", "is_active"]
 

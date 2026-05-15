@@ -11,6 +11,8 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from permissoes.permissions import HasCapability
+
 from common.jinja_env import build_env
 
 from .models import Petition
@@ -46,7 +48,17 @@ class PetitionViewSet(viewsets.ModelViewSet):
 
     queryset = Petition.objects.select_related("cliente", "template").order_by("-created_at")
     serializer_class = PetitionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        return [HasCapability.for_action(self.action, {
+            "list": "peticoes.visualizar",
+            "retrieve": "peticoes.visualizar",
+            "create": "peticoes.criar",
+            "update": "peticoes.editar",
+            "partial_update": "peticoes.editar",
+            "destroy": "peticoes.deletar",
+            "render": "peticoes.renderizar",
+        })]
 
     # -------------------------------------------------------
     # Helpers

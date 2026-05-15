@@ -6,12 +6,11 @@ from django.db.models import Count, Q
 from django.db.models.functions import TruncDay, TruncWeek, TruncMonth
 from django.http import HttpResponse, StreamingHttpResponse
 from django.utils import timezone
-from django.utils.decorators import method_decorator
-from django.views.decorators.cache import cache_page
 
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from permissoes.permissions import HasCapability
 
 from .serializers import (
     TimeSeriesQuerySerializer,
@@ -100,9 +99,10 @@ def periods_range(start: datetime, end: datetime, bucket: str) -> List[datetime]
 
 # -------- Views --------
 
-@method_decorator(cache_page(300), name="dispatch")  # 5 min de cache
 class TimeSeriesView(APIView):
-    permission_classes = [IsAuthenticated]
+    # cache_page removido em Fase 2: o cache por URL vazaria 403 entre usuários
+    # com permissões diferentes. Se reintroduzir, usar Vary por Authorization.
+    permission_classes = [HasCapability("relatorios.visualizar")]
 
     def get(self, request):
         q = TimeSeriesQuerySerializer(data=request.query_params)
@@ -162,9 +162,8 @@ class TimeSeriesView(APIView):
         })
 
 
-@method_decorator(cache_page(300), name="dispatch")
 class TemplatesUsageView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [HasCapability("relatorios.visualizar")]
 
     def get(self, request):
         q = TemplatesUsageQuerySerializer(data=request.query_params)
@@ -191,9 +190,8 @@ class TemplatesUsageView(APIView):
         return Response(results)
 
 
-@method_decorator(cache_page(300), name="dispatch")
 class DataQualityView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [HasCapability("relatorios.visualizar")]
 
     def get(self, request):
         total = Cliente.objects.count()
@@ -230,7 +228,7 @@ class DataQualityView(APIView):
 
 
 class ExportPetitionsCSVView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [HasCapability("relatorios.exportar")]
 
     def get(self, request):
         q = ExportPetitionsQuerySerializer(data=request.query_params)

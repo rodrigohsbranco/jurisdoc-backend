@@ -1,6 +1,7 @@
 from rest_framework import viewsets, filters, permissions
 from django_filters.rest_framework import DjangoFilterBackend
 
+from permissoes.permissions import HasCapability
 from .models import Contrato
 from .serializers import ContratoSerializer
 
@@ -13,7 +14,16 @@ class ContratoViewSet(viewsets.ModelViewSet):
 
     queryset = Contrato.objects.select_related("cliente", "criado_por").all()
     serializer_class = ContratoSerializer
-    permission_classes = [permissions.IsAuthenticated]
+
+    def get_permissions(self):
+        return [HasCapability.for_action(self.action, {
+            "list": "contratos.visualizar",
+            "retrieve": "contratos.visualizar",
+            "create": "contratos.criar",
+            "update": "contratos.editar",
+            "partial_update": "contratos.editar",
+            "destroy": "contratos.deletar",
+        })]
 
     # Filtros e ordenação
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]

@@ -11,6 +11,8 @@ from rest_framework import viewsets, permissions, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from permissoes.permissions import HasCapability
+
 from common.jinja_env import build_env
 
 from .models import Template
@@ -58,8 +60,24 @@ class TemplateViewSet(viewsets.ModelViewSet):
     """
     queryset = Template.objects.all().order_by("name")
     serializer_class = TemplateSerializer
-    permission_classes = [permissions.IsAuthenticated]
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+
+    def get_permissions(self):
+        return [HasCapability.for_action(self.action, {
+            "list": "templates.visualizar",
+            "retrieve": "templates.visualizar",
+            "create": "templates.criar",
+            "update": "templates.editar",
+            "partial_update": "templates.editar",
+            "destroy": "templates.deletar",
+            "fields": "templates.visualizar",
+            "download": "templates.visualizar",
+            "render": "templates.renderizar",
+            "render_pdf": "templates.renderizar",
+            "compose": "templates.renderizar",
+            "convert_to_pdf": "templates.renderizar",
+            "compose_to_pdf": "templates.renderizar",
+        })]
     search_fields = ["name"]
     ordering_fields = ["name", "active"]
     ordering = ["name"]
