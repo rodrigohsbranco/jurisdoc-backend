@@ -2,6 +2,9 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
+from permissoes.models import Permissao
+from permissoes.serializers import PermissaoLeveSerializer
+
 User = get_user_model()
 
 
@@ -9,13 +12,33 @@ class UserSerializer(serializers.ModelSerializer):
     # senha nunca sai na resposta; opcional no update, obrigatória no create
     password = serializers.CharField(write_only=True, required=False, min_length=6)
 
+    # permissao: aceita ID na escrita; expande objeto na leitura via permissao_detalhe
+    permissao = serializers.PrimaryKeyRelatedField(
+        queryset=Permissao.objects.all(),
+        allow_null=True,
+        required=False,
+    )
+    permissao_detalhe = PermissaoLeveSerializer(source="permissao", read_only=True)
+
+    # lista flat de códigos de capacidade do usuário (via permissao)
+    capacidades = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = [
-            "id", "username", "first_name", "last_name", "email",
-            "is_admin", "is_active", "password",
+            "id", "username",
+            "first_name", "last_name",  # legados (mantidos pra compat)
+            "nome_completo", "email", "telefone", "endereco", "avatar",
+            "is_admin", "is_active",
+            "permissao", "permissao_detalhe", "capacidades",
+            "password",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "permissao_detalhe", "capacidades"]
+
+    def get_capacidades(self, obj) -> list[str]:
+        if not obj.permissao_id:
+            return []
+        return list(obj.permissao.capacidades.values_list("codigo", flat=True))
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)
@@ -38,7 +61,7 @@ class UserSerializer(serializers.ModelSerializer):
         new_password = validated_data.pop("password", None)
         new_is_admin = validated_data.pop("is_admin", None)
 
-        # atualiza campos “normais”
+        # atualiza campos "normais" (inclui permissao por FK)
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
 
@@ -79,7 +102,6 @@ class TokenObtainPairWithUserSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
-        # Renomeia 'access' para 'accessToken' e 'refresh' para 'refreshToken'
         return {
             "accessToken": data["access"],
             "refreshToken": data["refresh"],

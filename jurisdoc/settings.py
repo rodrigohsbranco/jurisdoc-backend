@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "contracts",
     "kits",
     "advogados",
+    "permissoes",
 ]
 
 MIDDLEWARE = [
