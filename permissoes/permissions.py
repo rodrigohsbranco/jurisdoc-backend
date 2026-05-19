@@ -63,6 +63,9 @@ class HasCapability(permissions.BasePermission):
         if codigo is not None:
             self.codigo = codigo
 
+    def __call__(self, *args, **kwargs):
+        return self
+
     def has_permission(self, request, view):
         user = request.user
         if not user or not user.is_authenticated:
