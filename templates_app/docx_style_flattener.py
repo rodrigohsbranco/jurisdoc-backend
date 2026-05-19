@@ -27,6 +27,13 @@ W = "{" + W_NS + "}"
 # na conversão LibreOffice
 TRACKED_PROPS = ("b", "i", "u", "caps", "smallCaps", "strike")
 
+# Propriedades de complex script (bCs/iCs) precisam espelhar b/i: o LibreOffice
+# headless aplica esses marcadores ao texto latino também quando rFonts ascii
+# e cs apontam para a mesma fonte. Diferente de TRACKED_PROPS, são forçadas
+# mesmo quando já estão diretas no run — porque o valor "correto" delas é
+# sempre o mesmo de b/i.
+MIRROR_CS_PROPS = {"bCs": "b", "iCs": "i"}
+
 # Famílias de fonte cujo NOME já carrega o peso (Word renderiza como bold/heavy
 # pelo glyph da fonte, não por <w:b/>). Quando a fonte cai num fallback no
 # LibreOffice, o peso some — então marcamos <w:b/> direto no run para garantir
@@ -191,6 +198,12 @@ def _process_xml_root(root, styles_root, defaults):
                 if prop in r_direct_props:
                     continue
                 _set_direct_prop(r, prop, on=bool(effective.get(prop, False)))
+
+            # bCs/iCs sempre espelham b/i efetivos — força override mesmo
+            # quando vêm diretas do template (resolve o vazamento de bold do
+            # LibreOffice em runs com bCs herdado).
+            for mirror_prop, source_prop in MIRROR_CS_PROPS.items():
+                _set_direct_prop(r, mirror_prop, on=bool(effective.get(source_prop, False)))
 
 
 def _flatten_impl(docx_bytes: bytes) -> bytes:
