@@ -107,6 +107,19 @@ class TemplateViewSet(viewsets.ModelViewSet):
         master = Document(files[0])
         master_body = master.element.body
 
+        # O <w:sectPr> final do body deve ser SEMPRE o último elemento
+        # (define margens, colunas, refs de header/footer da seção). Inserir
+        # conteúdo após ele produz OOXML inválido e o LibreOffice/Word
+        # passam a ignorar spacing/indent dos parágrafos colados. Inserimos
+        # tudo *antes* do sectPr final, preservando-o como rodapé da estrutura.
+        final_sect_pr = master_body.find(qn('w:sectPr'))
+
+        def add_to_master(element):
+            if final_sect_pr is not None:
+                final_sect_pr.addprevious(element)
+            else:
+                master_body.append(element)
+
         for f in files[1:]:
             page_break_para = OxmlElement('w:p')
             run_elem = OxmlElement('w:r')
@@ -114,13 +127,13 @@ class TemplateViewSet(viewsets.ModelViewSet):
             br.set(qn('w:type'), 'page')
             run_elem.append(br)
             page_break_para.append(run_elem)
-            master_body.append(page_break_para)
+            add_to_master(page_break_para)
 
             doc = Document(f)
             for child in doc.element.body:
                 tag = child.tag.split('}')[-1] if '}' in child.tag else child.tag
                 if tag in ('p', 'tbl'):
-                    master_body.append(copy.deepcopy(child))
+                    add_to_master(copy.deepcopy(child))
 
         buf = BytesIO()
         master.save(buf)
