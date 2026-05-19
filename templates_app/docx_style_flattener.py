@@ -123,15 +123,31 @@ def _ensure_rpr(r_el):
     return rpr
 
 
-def _set_direct_prop(r_el, prop_name):
+def _set_direct_prop(r_el, prop_name, on: bool = True):
+    """Materializa <w:{prop}/> (on=True) ou <w:{prop} w:val="0"/> (on=False) na rPr.
+
+    Escrever o False explicitamente é essencial: sem ele, o LibreOffice vaza
+    o negrito de um run para o vizinho durante a conversão para PDF quando
+    o run vizinho não tem nenhuma marcação de bold.
+    """
     rpr = _ensure_rpr(r_el)
-    if rpr.find(f"{W}{prop_name}") is None:
-        etree.SubElement(rpr, f"{W}{prop_name}")
+    existing = rpr.find(f"{W}{prop_name}")
+    if existing is not None:
+        if on:
+            existing.attrib.pop(f"{W}val", None)
+        else:
+            existing.set(f"{W}val", "0")
+        return
+    el = etree.SubElement(rpr, f"{W}{prop_name}")
+    if not on:
+        el.set(f"{W}val", "0")
 
 
 def _process_xml_root(root, styles_root, defaults):
     """Para cada parágrafo no XML, calcula formatação efetiva por run e
-    materializa as propriedades True que ainda não estão diretas."""
+    materializa cada propriedade rastreada como direta no run — tanto True
+    quanto False explicitamente, eliminando a herança implícita que o
+    LibreOffice trata de forma inconsistente."""
     for p in root.iter(f"{W}p"):
         ppr = p.find(f"{W}pPr")
         p_style_id = None
@@ -169,9 +185,12 @@ def _process_xml_root(root, styles_root, defaults):
             if _font_implies_bold(rpr) and "b" not in r_direct_props:
                 effective["b"] = True
 
-            for prop, val in effective.items():
-                if val and prop not in r_direct_props:
-                    _set_direct_prop(r, prop)
+            # Materializa cada prop rastreada como direta — True OU False.
+            # Runs que não têm direto e o estilo não diz nada caem em False (default).
+            for prop in TRACKED_PROPS:
+                if prop in r_direct_props:
+                    continue
+                _set_direct_prop(r, prop, on=bool(effective.get(prop, False)))
 
 
 def _flatten_impl(docx_bytes: bytes) -> bytes:
