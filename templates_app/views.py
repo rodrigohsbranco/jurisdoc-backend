@@ -176,8 +176,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
         Converte .docx para PDF aplicando 'Página X de Y' apenas quando
         houver mais de uma página. Estratégia: converte uma vez sem
         numeração; se o PDF tem 1 página, devolve direto. Se >1, injeta
-        a numeração no .docx e re-converte. Necessária porque o IF field
-        do OOXML não é avaliado corretamente pelo LibreOffice 7.4.
+        a numeração com complex fields (PAGE/NUMPAGES) e re-converte.
         """
         pdf_bytes = self._convert_docx_bytes_to_pdf(docx_bytes)
         try:
@@ -455,8 +454,9 @@ class TemplateViewSet(viewsets.ModelViewSet):
             return error
 
         if not _truthy(request.data.get("skip_page_numbering")):
-            # IF condicional só funciona quando o usuário abre no Word.
-            # Single-page Word esconde corretamente; LibreOffice 7.4 não avalia.
+            # Sempre injeta "Página X de Y" usando complex fields. Docs de
+            # 1 página ficam com "Página 1 de 1" — quando isso não é desejado,
+            # passar skip_page_numbering=true.
             docx_bytes = add_page_numbering_conditional(docx_bytes)
 
         safe_fn = iri_to_uri(f"{filename}.docx")

@@ -1,22 +1,22 @@
 """
 Injeta "Página X de Y" no rodapé de cada seção de um .docx.
 
-Duas estratégias:
+Usa o formato OOXML canônico de complex field (fldChar begin / instrText /
+fldChar separate / cache / fldChar end) para PAGE e NUMPAGES. Esse é o
+único formato que LibreOffice headless avalia de forma consistente ao
+converter para PDF — `<w:fldSimple>` com run-cache e IF aninhado deixam
+o rodapé vazio em versões 7.x.
 
-- add_page_numbering_simple(bytes): injeta um campo PAGE/NUMPAGES sempre
-  visível ("Página X de Y"). Funciona em qualquer renderizador. Usado
-  no caminho do PDF, depois de já termos detectado que o documento tem
-  mais de uma página.
+Ambas funções (`add_page_numbering_simple` e `add_page_numbering_conditional`)
+hoje produzem o mesmo resultado — "Página X de Y" sempre visível. A versão
+"conditional" foi mantida apenas por retrocompatibilidade de import; o IF
+aninhado original quebrava no caminho PDF e em viewers fora do Word.
 
-- add_page_numbering_conditional(bytes): injeta um campo IF aninhado
-  que esconde a numeração em documentos de página única. Funciona
-  perfeitamente no Word (que avalia fields aninhados). LibreOffice
-  versões < 7.5 têm bug com fields aninhados em IF — não usar para
-  o caminho do PDF.
+Trade-off conhecido: docs de 1 página exibem "Página 1 de 1". Onde isso
+não é desejado, o caller deve detectar a contagem antes (ver
+`_convert_with_conditional_page_numbering` em views.py).
 
-Ambas mantêm qualquer rodapé existente (logo, endereço, etc.) — só
-anexam um novo parágrafo. Em caso de erro, retornam os bytes originais
-sem quebrar o pipeline.
+Em caso de erro, retornam os bytes originais sem quebrar o pipeline.
 """
 from io import BytesIO
 
@@ -67,59 +67,35 @@ def _text_run(text: str):
     return _make_run_with_child(t)
 
 
-def _make_simple_field(instr: str):
-    """<w:fldSimple w:instr=" PAGE "> com placeholder dentro."""
-    fld = OxmlElement("w:fldSimple")
-    fld.set(qn("w:instr"), f" {instr} ")
-    fld.append(_text_run("1"))
-    return fld
+def _append_complex_field(p_el, instr: str, cache_text: str = "1") -> None:
+    """Anexa um campo complex (fldChar begin / instrText / separate / cache / end).
+
+    Forma canônica que LibreOffice headless avalia corretamente ao converter
+    para PDF. `cache_text` é o valor exibido caso o renderer não atualize os
+    campos — '1' é seguro pra PAGE e NUMPAGES.
+    """
+    p_el.append(_fld_char("begin"))
+    p_el.append(_instr_text(instr))
+    p_el.append(_fld_char("separate"))
+    p_el.append(_text_run(cache_text))
+    p_el.append(_fld_char("end"))
 
 
 def _append_simple_paragraph(footer):
-    """Sem condição: 'Página { PAGE } de { NUMPAGES }' alinhado à direita."""
+    """'Página { PAGE } de { NUMPAGES }' alinhado à direita, sempre visível."""
     p = footer.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_el = p._p
     p_el.append(_text_run("Página "))
-    p_el.append(_make_simple_field("PAGE"))
+    _append_complex_field(p_el, "PAGE")
     p_el.append(_text_run(" de "))
-    p_el.append(_make_simple_field("NUMPAGES"))
+    _append_complex_field(p_el, "NUMPAGES")
 
 
-def _append_conditional_paragraph(footer):
-    """
-    Com IF aninhado:
-        { IF { NUMPAGES } > 1 "Página { PAGE } de { NUMPAGES }" "" }
-    Funciona em Word; LibreOffice 7.4 não avalia campos aninhados.
-    """
-    p = footer.add_paragraph()
-    p.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p_el = p._p
-
-    p_el.append(_fld_char("begin"))
-    p_el.append(_instr_text("IF "))
-
-    p_el.append(_fld_char("begin"))
-    p_el.append(_instr_text("NUMPAGES"))
-    p_el.append(_fld_char("end"))
-
-    p_el.append(_instr_text(' > 1 "Página '))
-
-    p_el.append(_fld_char("begin"))
-    p_el.append(_instr_text("PAGE"))
-    p_el.append(_fld_char("end"))
-
-    p_el.append(_instr_text(" de "))
-
-    p_el.append(_fld_char("begin"))
-    p_el.append(_instr_text("NUMPAGES"))
-    p_el.append(_fld_char("end"))
-
-    p_el.append(_instr_text('" ""'))
-
-    p_el.append(_fld_char("separate"))
-    p_el.append(_text_run(""))
-    p_el.append(_fld_char("end"))
+# Alias mantido por retrocompatibilidade. O IF aninhado anterior quebrava em
+# qualquer viewer fora do Word — agora ambas as estratégias produzem o mesmo
+# parágrafo simple com complex fields.
+_append_conditional_paragraph = _append_simple_paragraph
 
 
 def _section_has_different_first_page(section) -> bool:
@@ -154,13 +130,13 @@ def add_page_numbering_simple(docx_bytes: bytes) -> bytes:
 
 
 def add_page_numbering_conditional(docx_bytes: bytes) -> bytes:
-    """Injeta IF que esconde em página única. Para Word; LibreOffice < 7.5 não avalia."""
+    """Mantida por retrocompat — hoje é equivalente a add_page_numbering_simple.
+    Sempre injeta 'Página X de Y'. Docs de 1 página exibem 'Página 1 de 1'."""
     try:
         return _add(docx_bytes, _append_conditional_paragraph)
     except Exception:
         return docx_bytes
 
 
-# Mantém retrocompat com call existente que usa add_page_numbering — defaulta
-# para o conditional (caso .docx que abre no Word).
-add_page_numbering = add_page_numbering_conditional
+# Alias mantido por retrocompat com chamadas existentes.
+add_page_numbering = add_page_numbering_simple
