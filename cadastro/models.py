@@ -76,12 +76,20 @@ class Cliente(models.Model):
     possui_moveis = models.BooleanField(null=True, blank=True, default=None)
     isento_irpf = models.BooleanField(null=True, blank=True, default=None)
 
-    # Comprovante de residência
-    comprovante_residencia = models.FileField(upload_to="clientes/comprovantes/", blank=True)
+    # Comprovante de residência (múltiplos arquivos)
+    comprovantes_residencia = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Array JSON de comprovantes do cliente. Cada item: {path, name}',
+    )
     comprovante_nome_cliente = models.CharField(max_length=3, blank=True)  # sim/nao
     responsavel_imovel_nome = models.CharField(max_length=200, blank=True)
     responsavel_imovel_cpf = models.CharField(max_length=11, blank=True)
-    responsavel_imovel_doc = models.FileField(upload_to="clientes/comprovantes/", blank=True)
+    responsavel_imovel_docs = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Array JSON de documentos do responsável pelo imóvel. Cada item: {path, name}',
+    )
 
     # Contato — telefone primário (legacy single fields, mantidos para compat)
     telefone = models.CharField(max_length=20, blank=True)

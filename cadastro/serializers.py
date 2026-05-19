@@ -16,6 +16,8 @@ class ClienteSerializer(serializers.ModelSerializer):
     testemunha1_documentos = serializers.SerializerMethodField()
     testemunha2_documentos = serializers.SerializerMethodField()
     responsavel_legal_documentos = serializers.SerializerMethodField()
+    comprovantes_residencia = serializers.SerializerMethodField()
+    responsavel_imovel_docs = serializers.SerializerMethodField()
 
     def get_documentos_pessoais(self, obj):
         return self._docs_with_urls(obj.documentos_pessoais or [])
@@ -31,6 +33,12 @@ class ClienteSerializer(serializers.ModelSerializer):
 
     def get_responsavel_legal_documentos(self, obj):
         return self._docs_with_urls(obj.responsavel_legal_documentos or [])
+
+    def get_comprovantes_residencia(self, obj):
+        return self._docs_with_urls(obj.comprovantes_residencia or [])
+
+    def get_responsavel_imovel_docs(self, obj):
+        return self._docs_with_urls(obj.responsavel_imovel_docs or [])
 
     def _docs_with_urls(self, docs):
         request = self.context.get("request")
@@ -83,11 +91,11 @@ class ClienteSerializer(serializers.ModelSerializer):
             "possui_imoveis",
             "possui_moveis",
             "isento_irpf",
-            "comprovante_residencia",
+            "comprovantes_residencia",
             "comprovante_nome_cliente",
             "responsavel_imovel_nome",
             "responsavel_imovel_cpf",
-            "responsavel_imovel_doc",
+            "responsavel_imovel_docs",
             "titular_contato",
             "nome_titular_numero",
             "relacao_titular_tipo",

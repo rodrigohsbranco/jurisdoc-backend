@@ -38,6 +38,10 @@ class ClienteViewSet(viewsets.ModelViewSet):
             "remove_doc": "clientes.editar",
             "upload_related_docs": "clientes.editar",
             "remove_related_doc": "clientes.editar",
+            "upload_comprovantes": "clientes.editar",
+            "remove_comprovante": "clientes.editar",
+            "upload_responsavel_docs": "clientes.editar",
+            "remove_responsavel_doc": "clientes.editar",
         })]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ClienteFilter
@@ -251,6 +255,132 @@ class ClienteViewSet(viewsets.ModelViewSet):
 
         return response.Response(
             {"documentos": self._docs_with_urls(new_docs, request)},
+            status=status.HTTP_200_OK,
+        )
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="comprovantes-residencia/upload",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_comprovantes(self, request, pk=None):
+        """Upload de comprovantes de residência do cliente (múltiplos arquivos)."""
+        instance = self.get_object()
+        files = request.FILES.getlist("files")
+        if not files:
+            return response.Response(
+                {"detail": "Nenhum arquivo enviado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(instance.comprovantes_residencia or [])
+        for f in files:
+            path = default_storage.save(
+                f"clientes/comprovantes/{instance.pk}/{f.name}", f
+            )
+            docs.append({"path": path, "name": f.name})
+
+        instance.comprovantes_residencia = docs
+        instance.save(update_fields=["comprovantes_residencia"])
+        return response.Response(
+            {"comprovantes_residencia": self._docs_with_urls(docs, request)},
+            status=status.HTTP_200_OK,
+        )
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="comprovantes-residencia/remove",
+    )
+    def remove_comprovante(self, request, pk=None):
+        """Remove um comprovante de residência pelo path."""
+        instance = self.get_object()
+        path_to_remove = request.data.get("path")
+        if not path_to_remove:
+            return response.Response(
+                {"detail": "Informe o campo 'path'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(instance.comprovantes_residencia or [])
+        new_docs = [d for d in docs if d.get("path") != path_to_remove]
+        if len(new_docs) == len(docs):
+            return response.Response(
+                {"detail": "Comprovante não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if default_storage.exists(path_to_remove):
+            default_storage.delete(path_to_remove)
+
+        instance.comprovantes_residencia = new_docs
+        instance.save(update_fields=["comprovantes_residencia"])
+        return response.Response(
+            {"comprovantes_residencia": self._docs_with_urls(new_docs, request)},
+            status=status.HTTP_200_OK,
+        )
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="responsavel-imovel-docs/upload",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_responsavel_docs(self, request, pk=None):
+        """Upload de documentos do responsável pelo imóvel (múltiplos arquivos)."""
+        instance = self.get_object()
+        files = request.FILES.getlist("files")
+        if not files:
+            return response.Response(
+                {"detail": "Nenhum arquivo enviado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(instance.responsavel_imovel_docs or [])
+        for f in files:
+            path = default_storage.save(
+                f"clientes/comprovantes/{instance.pk}/responsavel/{f.name}", f
+            )
+            docs.append({"path": path, "name": f.name})
+
+        instance.responsavel_imovel_docs = docs
+        instance.save(update_fields=["responsavel_imovel_docs"])
+        return response.Response(
+            {"responsavel_imovel_docs": self._docs_with_urls(docs, request)},
+            status=status.HTTP_200_OK,
+        )
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="responsavel-imovel-docs/remove",
+    )
+    def remove_responsavel_doc(self, request, pk=None):
+        """Remove um documento do responsável pelo imóvel pelo path."""
+        instance = self.get_object()
+        path_to_remove = request.data.get("path")
+        if not path_to_remove:
+            return response.Response(
+                {"detail": "Informe o campo 'path'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(instance.responsavel_imovel_docs or [])
+        new_docs = [d for d in docs if d.get("path") != path_to_remove]
+        if len(new_docs) == len(docs):
+            return response.Response(
+                {"detail": "Documento não encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if default_storage.exists(path_to_remove):
+            default_storage.delete(path_to_remove)
+
+        instance.responsavel_imovel_docs = new_docs
+        instance.save(update_fields=["responsavel_imovel_docs"])
+        return response.Response(
+            {"responsavel_imovel_docs": self._docs_with_urls(new_docs, request)},
             status=status.HTTP_200_OK,
         )
 
