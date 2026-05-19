@@ -190,15 +190,17 @@ def _process_xml_root(root, styles_root, defaults):
 
         ppr = p.find(f"{W}pPr")
         p_style_id = None
-        p_level_rpr = None
         if ppr is not None:
             pstyle = ppr.find(f"{W}pStyle")
             if pstyle is not None:
                 p_style_id = pstyle.get(f"{W}val")
-            p_level_rpr = ppr.find(f"{W}rPr")
+            # NOTA: <w:pPr><w:rPr> NÃO entra na cadeia. Pelo ECMA-376 §17.7.5.10
+            # ele define apenas propriedades do glyph do paragraph mark (¶) — não
+            # cascadeia para os runs do parágrafo. Word respeita isso; tratar como
+            # herança aqui inverte a intenção do template (runs sem <w:b/> direto
+            # ficavam falsamente bold).
 
         p_style_props = _resolve_style_chain(p_style_id, styles_root)
-        p_level_props = _read_rpr_props(p_level_rpr)
 
         for r in p.findall(f"{W}r"):
             rpr = r.find(f"{W}rPr")
@@ -211,11 +213,10 @@ def _process_xml_root(root, styles_root, defaults):
             r_style_props = _resolve_style_chain(r_style_id, styles_root)
             r_direct_props = _read_rpr_props(rpr)
 
-            # Cadeia: docDefaults < pStyle < pPr/rPr < rStyle < direto
+            # Cadeia OOXML para runs: docDefaults < pStyle < rStyle < direto
             effective = {}
             effective.update(defaults)
             effective.update(p_style_props)
-            effective.update(p_level_props)
             effective.update(r_style_props)
             effective.update(r_direct_props)
 
