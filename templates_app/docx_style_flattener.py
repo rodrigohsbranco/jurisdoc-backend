@@ -151,12 +151,14 @@ def _set_direct_prop(r_el, prop_name, on: bool = True):
 
 
 def _ensure_paragraph_has_run(p_el) -> None:
-    """Garante que o parágrafo tenha pelo menos um <w:r>.
+    """Garante que o parágrafo tenha pelo menos um <w:r> com conteúdo.
 
-    LibreOffice headless colapsa a altura de parágrafos sem run ao converter
-    para PDF — linhas em branco que o Word renderiza somem. Injetamos um run
-    vazio com tamanho de fonte (herdado do pPr/rPr se houver, senão 22 = 11pt)
-    para forçar a altura.
+    LibreOffice headless colapsa a altura de parágrafos cujo único run tem
+    <w:t></w:t> vazio — linhas em branco que o Word renderiza somem. Word
+    usa o paragraph mark (¶) para calcular a altura; LibreOffice headless
+    ignora isso e olha só pros runs com conteúdo visível. Injetamos um run
+    com um único espaço (invisível visualmente em parágrafos centralizados
+    ou vazios) e tamanho de fonte explícito para forçar a altura da linha.
     """
     if p_el.find(f"{W}r") is not None:
         return
@@ -177,7 +179,7 @@ def _ensure_paragraph_has_run(p_el) -> None:
     sz.set(f"{W}val", sz_val)
     t = etree.SubElement(r, f"{W}t")
     t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
-    t.text = ""
+    t.text = " "
 
 
 def _process_xml_root(root, styles_root, defaults):
