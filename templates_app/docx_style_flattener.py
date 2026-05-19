@@ -150,12 +150,44 @@ def _set_direct_prop(r_el, prop_name, on: bool = True):
         el.set(f"{W}val", "0")
 
 
+def _ensure_paragraph_has_run(p_el) -> None:
+    """Garante que o parágrafo tenha pelo menos um <w:r>.
+
+    LibreOffice headless colapsa a altura de parágrafos sem run ao converter
+    para PDF — linhas em branco que o Word renderiza somem. Injetamos um run
+    vazio com tamanho de fonte (herdado do pPr/rPr se houver, senão 22 = 11pt)
+    para forçar a altura.
+    """
+    if p_el.find(f"{W}r") is not None:
+        return
+    sz_val = "22"
+    ppr = p_el.find(f"{W}pPr")
+    if ppr is not None:
+        rpr_pmark = ppr.find(f"{W}rPr")
+        if rpr_pmark is not None:
+            sz_el = rpr_pmark.find(f"{W}sz")
+            if sz_el is not None:
+                v = sz_el.get(f"{W}val")
+                if v:
+                    sz_val = v
+
+    r = etree.SubElement(p_el, f"{W}r")
+    rpr = etree.SubElement(r, f"{W}rPr")
+    sz = etree.SubElement(rpr, f"{W}sz")
+    sz.set(f"{W}val", sz_val)
+    t = etree.SubElement(r, f"{W}t")
+    t.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+    t.text = ""
+
+
 def _process_xml_root(root, styles_root, defaults):
     """Para cada parágrafo no XML, calcula formatação efetiva por run e
     materializa cada propriedade rastreada como direta no run — tanto True
     quanto False explicitamente, eliminando a herança implícita que o
     LibreOffice trata de forma inconsistente."""
     for p in root.iter(f"{W}p"):
+        _ensure_paragraph_has_run(p)
+
         ppr = p.find(f"{W}pPr")
         p_style_id = None
         p_level_rpr = None
