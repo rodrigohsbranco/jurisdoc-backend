@@ -64,6 +64,53 @@ class ChangePasswordView(APIView):
         user.save()
         return Response({"detail": "Senha alterada com sucesso."})
 
+class AppTokenView(APIView):
+    """
+    Endpoint de autenticação Client Credentials (server-to-server).
+
+    Recebe client_id + client_secret e retorna um access_token de serviço
+    com validade de 1 hora. Esse token deve ser usado pelo backend parceiro
+    nos headers: Authorization: Bearer <access_token>
+    """
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        from .models import AppClient
+        from .service_auth import issue_service_token, SERVICE_TOKEN_LIFETIME
+
+        client_id = (request.data.get("client_id") or "").strip()
+        client_secret = (request.data.get("client_secret") or "").strip()
+
+        if not client_id or not client_secret:
+            return Response(
+                {"detail": "client_id e client_secret são obrigatórios."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Mensagem genérica em ambos os casos para evitar enumeração
+        _invalid = Response(
+            {"detail": "Credenciais inválidas."},
+            status=status.HTTP_401_UNAUTHORIZED,
+        )
+
+        try:
+            client = AppClient.objects.get(client_id=client_id, is_active=True)
+        except AppClient.DoesNotExist:
+            return _invalid
+
+        if not client.check_secret(client_secret):
+            return _invalid
+
+        token = issue_service_token(client_id)
+        return Response({
+            "access_token": token,
+            "token_type": "bearer",
+            "expires_in": int(SERVICE_TOKEN_LIFETIME.total_seconds()),
+        }, status=status.HTTP_200_OK)
+
+
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all().order_by("username")
     serializer_class = UserSerializer

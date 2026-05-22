@@ -20,5 +20,6 @@ urlpatterns = [
     path("api/associacoes-kit/", include(("kits.urls_associacoes", "associacoes-kit"))),
     path("api/advogados/", include("advogados.urls")),
     path("api/permissoes/", include("permissoes.urls")),
+    path("api/catalogo/", include("kits.urls_publico")),
     path("api/", include("contracts.urls")),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

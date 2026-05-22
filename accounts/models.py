@@ -1,3 +1,6 @@
+import secrets
+
+from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
@@ -18,3 +21,38 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.username
+
+
+class AppClient(models.Model):
+    """
+    Credencial de aplicação para comunicação server-to-server (Client Credentials).
+    Nunca expor client_secret_hash; o segredo bruto só existe no momento da criação.
+    """
+
+    client_id = models.CharField(max_length=64, unique=True, db_index=True)
+    client_secret_hash = models.CharField(max_length=256)
+    nome = models.CharField(max_length=120, help_text="Nome identificador da aplicação cliente (ex.: Backend App Colaboradores)")
+    is_active = models.BooleanField(default=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    atualizado_em = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "App Client"
+        verbose_name_plural = "App Clients"
+        ordering = ["nome"]
+
+    def __str__(self):
+        return f"{self.nome} ({self.client_id})"
+
+    @staticmethod
+    def generate_credentials() -> tuple[str, str]:
+        """Gera um par (client_id, client_secret) criptograficamente seguro."""
+        client_id = secrets.token_urlsafe(24)
+        client_secret = secrets.token_urlsafe(48)
+        return client_id, client_secret
+
+    def set_secret(self, raw_secret: str) -> None:
+        self.client_secret_hash = make_password(raw_secret)
+
+    def check_secret(self, raw_secret: str) -> bool:
+        return check_password(raw_secret, self.client_secret_hash)

@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as DjangoUserAdmin
 
-from .models import User
+from .models import AppClient, User
 
 
 @admin.register(User)
@@ -32,3 +32,12 @@ class UserAdmin(DjangoUserAdmin):
             "fields": ("email", "nome_completo", "is_admin", "permissao"),
         }),
     )
+
+
+@admin.register(AppClient)
+class AppClientAdmin(admin.ModelAdmin):
+    list_display = ("nome", "client_id", "is_active", "criado_em")
+    list_filter = ("is_active",)
+    search_fields = ("nome", "client_id")
+    readonly_fields = ("client_id", "client_secret_hash", "criado_em", "atualizado_em")
+    fields = ("nome", "client_id", "client_secret_hash", "is_active", "criado_em", "atualizado_em")
