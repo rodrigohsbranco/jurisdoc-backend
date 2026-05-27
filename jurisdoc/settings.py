@@ -177,6 +177,10 @@ CORS_ALLOW_ALL_ORIGINS = True
 # Usuário customizado
 AUTH_USER_MODEL = "accounts.User"
 
+# Chave de assinatura para tokens de serviço (Client Credentials).
+# Em produção defina APP_INTEGRATION_SECRET no .env com um valor aleatório longo.
+APP_INTEGRATION_SECRET = os.getenv("APP_INTEGRATION_SECRET", SECRET_KEY)
+
 # Log de erros 500 no console (Gunicorn/EasyPanel) para ver traceback com DEBUG=0
 LOGGING = {
     "version": 1,
