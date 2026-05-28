@@ -133,4 +133,35 @@ CAPACIDADES: list[dict] = [
      "descricao": "Alterar permissões existentes", "categoria": "Sistema"},
     {"codigo": "permissoes.deletar", "recurso": "Permissões", "acao": "Deletar",
      "descricao": "Remover permissões", "categoria": "Sistema"},
+
+    # ===================== Acesso a páginas =====================
+    # Gate de UI: controla se o usuário PODE ABRIR a página no frontend.
+    # Independente das capacidades de dados (<recurso>.visualizar/criar/...),
+    # que continuam gateando os endpoints REST. Isso permite, por exemplo,
+    # dar a um operador de kits o direito de ler/criar clientes dentro do
+    # fluxo de kits sem expor a página standalone de Clientes.
+    {"codigo": "pagina.clientes", "recurso": "Página Clientes", "acao": "Acessar",
+     "descricao": "Abrir a página de Clientes", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.contas", "recurso": "Página Contas Bancárias", "acao": "Acessar",
+     "descricao": "Abrir a página de contas bancárias do cliente", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.conta_reu", "recurso": "Página Bancos Réus", "acao": "Acessar",
+     "descricao": "Abrir a página de Bancos Réus", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.templates", "recurso": "Página Templates", "acao": "Acessar",
+     "descricao": "Abrir a página de Templates", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.peticoes", "recurso": "Página Petições", "acao": "Acessar",
+     "descricao": "Abrir a página de Petições", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.contratos", "recurso": "Página Contratos", "acao": "Acessar",
+     "descricao": "Abrir a página de Contratos", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.kits", "recurso": "Página Produção de Kits", "acao": "Acessar",
+     "descricao": "Abrir a página de Produção de Kits (lista, novo, editar)", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.bancos_tarifas", "recurso": "Página Bancos e Tarifas", "acao": "Acessar",
+     "descricao": "Abrir a página de Bancos e Tarifas", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.advogados", "recurso": "Página Advogados", "acao": "Acessar",
+     "descricao": "Abrir a página de Advogados", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.relatorios", "recurso": "Página Relatórios", "acao": "Acessar",
+     "descricao": "Abrir a página de Relatórios", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.usuarios", "recurso": "Página Usuários", "acao": "Acessar",
+     "descricao": "Abrir a página de Usuários", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.permissoes", "recurso": "Página Permissões", "acao": "Acessar",
+     "descricao": "Abrir a página de Permissões", "categoria": "Acesso a páginas"},
 ]
