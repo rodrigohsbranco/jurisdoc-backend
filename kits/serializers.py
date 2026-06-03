@@ -3,7 +3,18 @@ from rest_framework import serializers
 
 from cadastro.media_paths import build_media_file_url
 from cadastro.serializers import ClienteSerializer
-from .models import AcaoKit, AssociacaoKit, BancoKit, DocumentoKit, Kit, TarifaKit
+from cadastro.validators import validate_uf
+
+from .models import (
+    AcaoKit,
+    AssociacaoKit,
+    BancoKit,
+    ClausulaPorcentagemPadrao,
+    ClausulaPorcentagemUF,
+    DocumentoKit,
+    Kit,
+    TarifaKit,
+)
 
 
 class AcaoKitSerializer(serializers.ModelSerializer):
@@ -310,3 +321,43 @@ class AssociacaoKitSerializer(serializers.ModelSerializer):
         model = AssociacaoKit
         fields = ["id", "nome", "abreviacao", "ativo", "ordem"]
         read_only_fields = ["id"]
+
+
+def _user_nome(user):
+    if not user:
+        return None
+    return getattr(user, "nome_completo", None) or getattr(user, "username", None)
+
+
+class ClausulaPorcentagemPadraoSerializer(serializers.ModelSerializer):
+    atualizado_por_nome = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClausulaPorcentagemPadrao
+        fields = ["texto", "atualizado_em", "atualizado_por_nome"]
+        read_only_fields = ["atualizado_em", "atualizado_por_nome"]
+
+    def get_atualizado_por_nome(self, obj):
+        return _user_nome(obj.atualizado_por)
+
+
+class ClausulaPorcentagemUFSerializer(serializers.ModelSerializer):
+    atualizado_por_nome = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClausulaPorcentagemUF
+        fields = ["id", "uf", "texto", "atualizado_em", "atualizado_por_nome"]
+        read_only_fields = ["id", "atualizado_em", "atualizado_por_nome"]
+
+    def get_atualizado_por_nome(self, obj):
+        return _user_nome(obj.atualizado_por)
+
+    def validate_uf(self, value):
+        value = (value or "").strip().upper()
+        validate_uf(value)
+        return value
+
+    def validate_texto(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Informe o texto da cláusula.")
+        return value

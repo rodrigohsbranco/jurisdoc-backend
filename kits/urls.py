@@ -1,12 +1,30 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 
-from .views import AcaoKitViewSet, KitViewSet
+from .views import (
+    AcaoKitViewSet,
+    ClausulaPorcentagemPadraoView,
+    ClausulaPorcentagemUFViewSet,
+    KitViewSet,
+)
 
 router = DefaultRouter()
+# Cláusula de porcentagem (admin-only) — registrado ANTES do KitViewSet (que
+# usa prefix vazio "") para que as rotas não sejam capturadas pelo viewset
+# genérico de kits.
+router.register(
+    r"clausula-porcentagem/ufs",
+    ClausulaPorcentagemUFViewSet,
+    basename="clausula-porcentagem-uf",
+)
 router.register(r"", KitViewSet, basename="kit")
 
 urlpatterns = [
+    path(
+        "clausula-porcentagem/padrao/",
+        ClausulaPorcentagemPadraoView.as_view(),
+        name="clausula-porcentagem-padrao",
+    ),
     path("", include(router.urls)),
     path(
         "<int:kit_pk>/acoes/",

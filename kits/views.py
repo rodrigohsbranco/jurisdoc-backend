@@ -1,18 +1,29 @@
 from django.core.files.storage import default_storage
 from django.db.models import Count, Q
-from rest_framework import viewsets, permissions, status, filters
+from rest_framework import viewsets, permissions, status, filters, generics
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
-from accounts.permissions import IsAdmin  # noqa: F401 (mantido por compat)
+from accounts.permissions import IsAdmin
 from permissoes.permissions import HasCapability
-from .models import AcaoKit, AssociacaoKit, BancoKit, Kit, TarifaKit
+from .models import (
+    AcaoKit,
+    AssociacaoKit,
+    BancoKit,
+    ClausulaPorcentagemPadrao,
+    ClausulaPorcentagemUF,
+    Kit,
+    TarifaKit,
+    resolver_clausula_porcentagem,
+)
 from .serializers import (
     AcaoKitSerializer,
     AssociacaoKitSerializer,
     BancoKitSerializer,
+    ClausulaPorcentagemPadraoSerializer,
+    ClausulaPorcentagemUFSerializer,
     KitCreateSerializer,
     KitDetailSerializer,
     KitListSerializer,
@@ -102,6 +113,53 @@ class KitViewSet(viewsets.ModelViewSet):
         kit.status = "finalizado"
         kit.save(update_fields=["status", "atualizado_em"])
         return Response(KitDetailSerializer(kit).data)
+
+    @action(detail=True, methods=["post", "get"], url_path="clausula-snapshot")
+    def clausula_snapshot(self, request, pk=None):
+        """Congela o snapshot da cláusula de porcentagem no kit (idempotente).
+
+        - GET: retorna o que seria/é o snapshot (sem persistir).
+        - POST: persiste o snapshot se ainda não estiver salvo, e retorna.
+
+        Resposta:
+            {
+                "uf": "AM",
+                "texto": "...",
+                "fonte": "snapshot" | "uf" | "padrao",
+                "ja_persistido": bool,
+            }
+        """
+        kit = self.get_object()
+        uf = (getattr(kit.cliente, "uf", "") or "").upper()
+
+        # Já tem snapshot: sempre retorna o salvo.
+        if kit.clausula_porcentagem_snapshot:
+            return Response({
+                "uf": uf,
+                "texto": kit.clausula_porcentagem_snapshot,
+                "fonte": "snapshot",
+                "ja_persistido": True,
+            })
+
+        # Sem snapshot ainda: resolve agora.
+        texto, fonte = resolver_clausula_porcentagem(uf)
+
+        if request.method == "POST":
+            kit.clausula_porcentagem_snapshot = texto
+            kit.save(update_fields=["clausula_porcentagem_snapshot", "atualizado_em"])
+            return Response({
+                "uf": uf,
+                "texto": texto,
+                "fonte": fonte,
+                "ja_persistido": True,
+            })
+
+        return Response({
+            "uf": uf,
+            "texto": texto,
+            "fonte": fonte,
+            "ja_persistido": False,
+        })
 
     @action(detail=True, methods=["post"])
     def assinar(self, request, pk=None):
@@ -324,3 +382,49 @@ class AssociacaoKitViewSet(viewsets.ModelViewSet):
             "partial_update": "bancos_tarifas.editar",
             "destroy": "bancos_tarifas.deletar",
         })]
+
+
+# =============================================================================
+# Cláusula de porcentagem por UF (admin-only)
+# =============================================================================
+
+class ClausulaPorcentagemPadraoView(generics.RetrieveUpdateAPIView):
+    """GET/PATCH do texto padrão da cláusula (singleton)."""
+
+    permission_classes = [IsAdmin]
+    serializer_class = ClausulaPorcentagemPadraoSerializer
+
+    def get_object(self):
+        return ClausulaPorcentagemPadrao.get_solo()
+
+    def perform_update(self, serializer):
+        serializer.save(atualizado_por=self.request.user)
+
+
+class ClausulaPorcentagemUFViewSet(viewsets.ModelViewSet):
+    """CRUD das variações por UF + endpoint utilitário 'resolve'."""
+
+    permission_classes = [IsAdmin]
+    queryset = ClausulaPorcentagemUF.objects.all().order_by("uf")
+    serializer_class = ClausulaPorcentagemUFSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ["uf"]
+    search_fields = ["uf", "texto"]
+    ordering_fields = ["uf", "atualizado_em"]
+    pagination_class = None  # máx. 27 itens
+
+    def perform_create(self, serializer):
+        serializer.save(atualizado_por=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(atualizado_por=self.request.user)
+
+    @action(detail=False, methods=["get"], url_path="resolve")
+    def resolve(self, request):
+        uf = request.query_params.get("uf", "")
+        texto, fonte = resolver_clausula_porcentagem(uf)
+        return Response({
+            "uf": (uf or "").strip().upper(),
+            "texto": texto,
+            "fonte": fonte,
+        })

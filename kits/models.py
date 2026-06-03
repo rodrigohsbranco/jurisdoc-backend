@@ -39,6 +39,8 @@ class Kit(models.Model):
         default="rascunho",
     )
 
+    clausula_porcentagem_snapshot = models.TextField(blank=True, default="")
+
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
@@ -172,3 +174,80 @@ class AssociacaoKit(models.Model):
 
     def __str__(self):
         return self.abreviacao or self.nome
+
+
+class ClausulaPorcentagemPadrao(models.Model):
+    """Texto padrão da cláusula de porcentagem do contrato do Kit.
+
+    Singleton: sempre existe exatamente uma linha (pk=1). Usado quando a
+    UF do cliente não tem variação cadastrada em ClausulaPorcentagemUF.
+    """
+
+    texto = models.TextField(blank=True, default="")
+    atualizado_em = models.DateTimeField(auto_now=True)
+    atualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    class Meta:
+        verbose_name = "Cláusula de porcentagem — padrão"
+        verbose_name_plural = "Cláusula de porcentagem — padrão"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        # Não permite apagar o singleton.
+        return
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return "Cláusula de porcentagem — padrão"
+
+
+class ClausulaPorcentagemUF(models.Model):
+    """Variação da cláusula de porcentagem para uma UF específica.
+
+    Sobrescreve o ClausulaPorcentagemPadrao quando a UF do cliente bate.
+    """
+
+    uf = models.CharField(max_length=2, unique=True)
+    texto = models.TextField()
+    atualizado_em = models.DateTimeField(auto_now=True)
+    atualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    class Meta:
+        ordering = ["uf"]
+        verbose_name = "Cláusula de porcentagem — variação por UF"
+        verbose_name_plural = "Cláusula de porcentagem — variações por UF"
+
+    def __str__(self):
+        return f"Cláusula de porcentagem — {self.uf}"
+
+
+def resolver_clausula_porcentagem(uf: str | None) -> tuple[str, str]:
+    """Retorna (texto, fonte) para a UF informada.
+
+    fonte ∈ {"uf", "padrao"}.
+    """
+    uf = (uf or "").strip().upper()
+    if uf:
+        var = ClausulaPorcentagemUF.objects.filter(uf=uf).first()
+        if var:
+            return var.texto, "uf"
+    return ClausulaPorcentagemPadrao.get_solo().texto, "padrao"
