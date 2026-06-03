@@ -114,6 +114,47 @@ class KitViewSet(viewsets.ModelViewSet):
         kit.save(update_fields=["status", "atualizado_em"])
         return Response(KitDetailSerializer(kit).data)
 
+    @action(detail=True, methods=["get"], url_path="advogados/sugeridos")
+    def advogados_sugeridos(self, request, pk=None):
+        """Retorna a pré-seleção de advogados para este kit.
+
+        Aplica a regra atual (UF do cliente + tipos_acao do kit). O frontend
+        usa essa lista pra marcar os pré-selecionados quando o operador
+        entra na etapa pela primeira vez.
+        """
+        from .services_advogados import sugerir_advogados
+
+        kit = self.get_object()
+        uf = (getattr(kit.cliente, "uf", "") or "").upper()
+        tipos = set(kit.acoes.values_list("tipo_acao", flat=True))
+        ids = sugerir_advogados(uf, tipos)
+        return Response({"advogados_ids": ids, "uf_cliente": uf})
+
+    @action(detail=True, methods=["get", "post"], url_path="advogados")
+    def advogados(self, request, pk=None):
+        """GET: retorna kit.advogados_snapshot.
+        POST: recebe {advogados_ids: [int]}, resolve OABs e salva snapshot.
+        """
+        from .services_advogados import montar_snapshot
+
+        kit = self.get_object()
+
+        if request.method == "GET":
+            return Response({"advogados_snapshot": list(kit.advogados_snapshot or [])})
+
+        ids = request.data.get("advogados_ids")
+        if ids is None or not isinstance(ids, list):
+            return Response(
+                {"detail": "Informe 'advogados_ids' como lista de IDs."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        uf = (getattr(kit.cliente, "uf", "") or "").upper()
+        snapshot, warnings = montar_snapshot(ids, uf)
+        kit.advogados_snapshot = snapshot
+        kit.save(update_fields=["advogados_snapshot", "atualizado_em"])
+        return Response({"advogados_snapshot": snapshot, "warnings": warnings})
+
     @action(detail=True, methods=["post", "get"], url_path="clausula-snapshot")
     def clausula_snapshot(self, request, pk=None):
         """Congela o snapshot da cláusula de porcentagem no kit (idempotente).

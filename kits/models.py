@@ -40,6 +40,7 @@ class Kit(models.Model):
     )
 
     clausula_porcentagem_snapshot = models.TextField(blank=True, default="")
+    advogados_snapshot = models.JSONField(default=list, blank=True)
 
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
