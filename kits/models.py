@@ -216,12 +216,21 @@ class ClausulaPorcentagemPadrao(models.Model):
 
 
 class ClausulaPorcentagemUF(models.Model):
-    """Variação da cláusula de porcentagem para uma UF específica.
+    """Variação da cláusula de porcentagem para uma UF (opcionalmente
+    restrita a um tipo de ação específico).
 
-    Sobrescreve o ClausulaPorcentagemPadrao quando a UF do cliente bate.
+    Sobrescreve o ClausulaPorcentagemPadrao. Quando tipo_acao=="",
+    é uma variação genérica daquela UF (vale para qualquer ação).
     """
 
-    uf = models.CharField(max_length=2, unique=True)
+    uf = models.CharField(max_length=2)
+    tipo_acao = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Tipo de ação ao qual a variação se aplica. "
+        "Vazio = variação genérica para qualquer ação naquela UF.",
+    )
     texto = models.TextField()
     atualizado_em = models.DateTimeField(auto_now=True)
     atualizado_por = models.ForeignKey(
@@ -233,22 +242,55 @@ class ClausulaPorcentagemUF(models.Model):
     )
 
     class Meta:
-        ordering = ["uf"]
+        ordering = ["uf", "tipo_acao"]
         verbose_name = "Cláusula de porcentagem — variação por UF"
         verbose_name_plural = "Cláusula de porcentagem — variações por UF"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["uf", "tipo_acao"],
+                name="unique_clausula_uf_tipo",
+            ),
+        ]
 
     def __str__(self):
-        return f"Cláusula de porcentagem — {self.uf}"
+        suf = f"/{self.tipo_acao}" if self.tipo_acao else ""
+        return f"Cláusula de porcentagem — {self.uf}{suf}"
 
 
-def resolver_clausula_porcentagem(uf: str | None) -> tuple[str, str]:
-    """Retorna (texto, fonte) para a UF informada.
+def resolver_clausula_porcentagem(
+    uf: str | None,
+    tipos_acao: list[str] | None = None,
+) -> tuple[str, str]:
+    """Retorna (texto, fonte) para a UF/tipos de ação do kit.
 
-    fonte ∈ {"uf", "padrao"}.
+    Cascata:
+      1) Para cada tipo em tipos_acao (ordem): se existir (UF, tipo) → "uf_tipo"
+      2) Se nada bateu: (UF, "") → "uf"
+      3) Senão: padrão → "padrao"
+
+    fonte ∈ {"uf_tipo", "uf", "padrao"}.
     """
     uf = (uf or "").strip().upper()
+    tipos_acao = [t for t in (tipos_acao or []) if t]
+
     if uf:
-        var = ClausulaPorcentagemUF.objects.filter(uf=uf).first()
+        # 1) Específica (UF + tipo) — primeira que bater
+        for tipo in tipos_acao:
+            var = (
+                ClausulaPorcentagemUF.objects
+                .filter(uf=uf, tipo_acao=tipo)
+                .first()
+            )
+            if var:
+                return var.texto, "uf_tipo"
+
+        # 2) Genérica (UF + tipo_acao="")
+        var = (
+            ClausulaPorcentagemUF.objects
+            .filter(uf=uf, tipo_acao="")
+            .first()
+        )
         if var:
             return var.texto, "uf"
+
     return ClausulaPorcentagemPadrao.get_solo().texto, "padrao"

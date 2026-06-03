@@ -182,8 +182,9 @@ class KitViewSet(viewsets.ModelViewSet):
                 "ja_persistido": True,
             })
 
-        # Sem snapshot ainda: resolve agora.
-        texto, fonte = resolver_clausula_porcentagem(uf)
+        # Sem snapshot ainda: resolve agora considerando os tipos de ação do kit.
+        tipos = list(kit.acoes.order_by("id").values_list("tipo_acao", flat=True))
+        texto, fonte = resolver_clausula_porcentagem(uf, tipos)
 
         if request.method == "POST":
             kit.clausula_porcentagem_snapshot = texto
@@ -463,9 +464,12 @@ class ClausulaPorcentagemUFViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"], url_path="resolve")
     def resolve(self, request):
         uf = request.query_params.get("uf", "")
-        texto, fonte = resolver_clausula_porcentagem(uf)
+        tipos_raw = request.query_params.get("tipos_acao", "")
+        tipos = [t.strip() for t in tipos_raw.split(",") if t.strip()] if tipos_raw else []
+        texto, fonte = resolver_clausula_porcentagem(uf, tipos)
         return Response({
             "uf": (uf or "").strip().upper(),
+            "tipos_acao": tipos,
             "texto": texto,
             "fonte": fonte,
         })
