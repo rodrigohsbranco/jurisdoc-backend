@@ -35,11 +35,11 @@ class ServiceClientPrincipal:
 
     is_authenticated: bool = True
     is_anonymous: bool = False
-    is_admin: bool = False
     pk = None
 
-    def __init__(self, client_id: str) -> None:
+    def __init__(self, client_id: str, is_admin: bool = False) -> None:
         self.client_id = client_id
+        self.is_admin = is_admin
 
     def __str__(self) -> str:
         return f"AppClient:{self.client_id}"
@@ -49,11 +49,12 @@ class ServiceClientPrincipal:
 # Emissão de tokens de serviço
 # ---------------------------------------------------------------------------
 
-def issue_service_token(client_id: str) -> str:
+def issue_service_token(client_id: str, is_admin: bool = False) -> str:
     now = datetime.now(tz=timezone.utc)
     payload = {
         "type": SERVICE_TOKEN_TYPE,
         "client_id": client_id,
+        "is_admin": is_admin,
         "iat": now,
         "exp": now + SERVICE_TOKEN_LIFETIME,
     }
@@ -95,7 +96,7 @@ class ServiceClientAuthentication(authentication.BaseAuthentication):
             # Token JWT válido mas não é de serviço — ignora
             return None
 
-        return ServiceClientPrincipal(payload["client_id"]), payload
+        return ServiceClientPrincipal(payload["client_id"], is_admin=payload.get("is_admin", False)), payload
 
     def authenticate_header(self, request) -> str:
         return "Bearer"
@@ -115,3 +116,17 @@ class IsServiceClient(permissions.BasePermission):
 
     def has_permission(self, request, view) -> bool:
         return isinstance(getattr(request, "user", None), ServiceClientPrincipal)
+
+
+class IsServiceAdmin(permissions.BasePermission):
+    """
+    Concede acesso apenas a App Clients com is_admin=True no token.
+    Usado em endpoints de escrita (CRUD completo de clientes etc.).
+    App Clients sem flag de admin recebem 403.
+    """
+
+    message = "Acesso restrito a App Clients com perfil de administrador."
+
+    def has_permission(self, request, view) -> bool:
+        user = getattr(request, "user", None)
+        return isinstance(user, ServiceClientPrincipal) and user.is_admin is True

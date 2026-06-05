@@ -4,7 +4,7 @@ from rest_framework import viewsets, filters, decorators, response, status
 from rest_framework.parsers import MultiPartParser, FormParser
 from django_filters.rest_framework import DjangoFilterBackend
 
-from accounts.service_auth import IsServiceClient, ServiceClientAuthentication
+from accounts.service_auth import IsServiceAdmin, ServiceClientAuthentication
 from .media_paths import build_media_file_url
 from .models import Cliente
 from .filters import ClienteFilter
@@ -25,7 +25,7 @@ def _docs_with_urls(docs, request):
 
 class ClienteAppViewSet(viewsets.ModelViewSet):
     authentication_classes = [ServiceClientAuthentication]
-    permission_classes = [IsServiceClient]
+    permission_classes = [IsServiceAdmin]
     serializer_class = ClienteSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ClienteFilter

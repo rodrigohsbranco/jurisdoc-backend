@@ -103,11 +103,12 @@ class AppTokenView(APIView):
         if not client.check_secret(client_secret):
             return _invalid
 
-        token = issue_service_token(client_id)
+        token = issue_service_token(client_id, is_admin=client.is_admin)
         return Response({
             "access_token": token,
             "token_type": "bearer",
             "expires_in": int(SERVICE_TOKEN_LIFETIME.total_seconds()),
+            "is_admin": client.is_admin,
         }, status=status.HTTP_200_OK)
 
 

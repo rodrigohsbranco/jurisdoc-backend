@@ -33,6 +33,7 @@ class AppClient(models.Model):
     client_secret_hash = models.CharField(max_length=256)
     nome = models.CharField(max_length=120, help_text="Nome identificador da aplicação cliente (ex.: Backend App Colaboradores)")
     is_active = models.BooleanField(default=True)
+    is_admin = models.BooleanField(default=False, help_text="Permite acesso a endpoints de escrita (CRUD completo de clientes etc.)")
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
