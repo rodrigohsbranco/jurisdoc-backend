@@ -27,6 +27,7 @@ class ClienteAppViewSet(viewsets.ModelViewSet):
     authentication_classes = [ServiceClientAuthentication]
     permission_classes = [IsServiceAdmin]
     serializer_class = ClienteSerializer
+    pagination_class = None
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ClienteFilter
     search_fields = ["nome_completo", "cpf", "cidade", "bairro", "profissao", "nacionalidade"]
