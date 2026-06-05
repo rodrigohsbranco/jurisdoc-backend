@@ -1,18 +1,29 @@
 from django.core.files.storage import default_storage
 from django.db.models import Count, Q
-from rest_framework import viewsets, permissions, status, filters
+from rest_framework import viewsets, permissions, status, filters, generics
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
-from accounts.permissions import IsAdmin  # noqa: F401 (mantido por compat)
+from accounts.permissions import IsAdmin
 from permissoes.permissions import HasCapability
-from .models import AcaoKit, AssociacaoKit, BancoKit, Kit, TarifaKit
+from .models import (
+    AcaoKit,
+    AssociacaoKit,
+    BancoKit,
+    ClausulaPorcentagemPadrao,
+    ClausulaPorcentagemUF,
+    Kit,
+    TarifaKit,
+    resolver_clausula_porcentagem,
+)
 from .serializers import (
     AcaoKitSerializer,
     AssociacaoKitSerializer,
     BancoKitSerializer,
+    ClausulaPorcentagemPadraoSerializer,
+    ClausulaPorcentagemUFSerializer,
     KitCreateSerializer,
     KitDetailSerializer,
     KitListSerializer,
@@ -102,6 +113,95 @@ class KitViewSet(viewsets.ModelViewSet):
         kit.status = "finalizado"
         kit.save(update_fields=["status", "atualizado_em"])
         return Response(KitDetailSerializer(kit).data)
+
+    @action(detail=True, methods=["get"], url_path="advogados/sugeridos")
+    def advogados_sugeridos(self, request, pk=None):
+        """Retorna a pré-seleção de advogados para este kit.
+
+        Aplica a regra atual (UF do cliente + tipos_acao do kit). O frontend
+        usa essa lista pra marcar os pré-selecionados quando o operador
+        entra na etapa pela primeira vez.
+        """
+        from .services_advogados import sugerir_advogados
+
+        kit = self.get_object()
+        uf = (getattr(kit.cliente, "uf", "") or "").upper()
+        tipos = set(kit.acoes.values_list("tipo_acao", flat=True))
+        ids = sugerir_advogados(uf, tipos)
+        return Response({"advogados_ids": ids, "uf_cliente": uf})
+
+    @action(detail=True, methods=["get", "post"], url_path="advogados")
+    def advogados(self, request, pk=None):
+        """GET: retorna kit.advogados_snapshot.
+        POST: recebe {advogados_ids: [int]}, resolve OABs e salva snapshot.
+        """
+        from .services_advogados import montar_snapshot
+
+        kit = self.get_object()
+
+        if request.method == "GET":
+            return Response({"advogados_snapshot": list(kit.advogados_snapshot or [])})
+
+        ids = request.data.get("advogados_ids")
+        if ids is None or not isinstance(ids, list):
+            return Response(
+                {"detail": "Informe 'advogados_ids' como lista de IDs."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        uf = (getattr(kit.cliente, "uf", "") or "").upper()
+        snapshot, warnings = montar_snapshot(ids, uf)
+        kit.advogados_snapshot = snapshot
+        kit.save(update_fields=["advogados_snapshot", "atualizado_em"])
+        return Response({"advogados_snapshot": snapshot, "warnings": warnings})
+
+    @action(detail=True, methods=["post", "get"], url_path="clausula-snapshot")
+    def clausula_snapshot(self, request, pk=None):
+        """Congela o snapshot da cláusula de porcentagem no kit (idempotente).
+
+        - GET: retorna o que seria/é o snapshot (sem persistir).
+        - POST: persiste o snapshot se ainda não estiver salvo, e retorna.
+
+        Resposta:
+            {
+                "uf": "AM",
+                "texto": "...",
+                "fonte": "snapshot" | "uf" | "padrao",
+                "ja_persistido": bool,
+            }
+        """
+        kit = self.get_object()
+        uf = (getattr(kit.cliente, "uf", "") or "").upper()
+
+        # Já tem snapshot: sempre retorna o salvo.
+        if kit.clausula_porcentagem_snapshot:
+            return Response({
+                "uf": uf,
+                "texto": kit.clausula_porcentagem_snapshot,
+                "fonte": "snapshot",
+                "ja_persistido": True,
+            })
+
+        # Sem snapshot ainda: resolve agora considerando os tipos de ação do kit.
+        tipos = list(kit.acoes.order_by("id").values_list("tipo_acao", flat=True))
+        texto, fonte = resolver_clausula_porcentagem(uf, tipos)
+
+        if request.method == "POST":
+            kit.clausula_porcentagem_snapshot = texto
+            kit.save(update_fields=["clausula_porcentagem_snapshot", "atualizado_em"])
+            return Response({
+                "uf": uf,
+                "texto": texto,
+                "fonte": fonte,
+                "ja_persistido": True,
+            })
+
+        return Response({
+            "uf": uf,
+            "texto": texto,
+            "fonte": fonte,
+            "ja_persistido": False,
+        })
 
     @action(detail=True, methods=["post"])
     def assinar(self, request, pk=None):
@@ -324,3 +424,52 @@ class AssociacaoKitViewSet(viewsets.ModelViewSet):
             "partial_update": "bancos_tarifas.editar",
             "destroy": "bancos_tarifas.deletar",
         })]
+
+
+# =============================================================================
+# Cláusula de porcentagem por UF (admin-only)
+# =============================================================================
+
+class ClausulaPorcentagemPadraoView(generics.RetrieveUpdateAPIView):
+    """GET/PATCH do texto padrão da cláusula (singleton)."""
+
+    permission_classes = [IsAdmin]
+    serializer_class = ClausulaPorcentagemPadraoSerializer
+
+    def get_object(self):
+        return ClausulaPorcentagemPadrao.get_solo()
+
+    def perform_update(self, serializer):
+        serializer.save(atualizado_por=self.request.user)
+
+
+class ClausulaPorcentagemUFViewSet(viewsets.ModelViewSet):
+    """CRUD das variações por UF + endpoint utilitário 'resolve'."""
+
+    permission_classes = [IsAdmin]
+    queryset = ClausulaPorcentagemUF.objects.all().order_by("uf")
+    serializer_class = ClausulaPorcentagemUFSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ["uf"]
+    search_fields = ["uf", "texto"]
+    ordering_fields = ["uf", "atualizado_em"]
+    pagination_class = None  # máx. 27 itens
+
+    def perform_create(self, serializer):
+        serializer.save(atualizado_por=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(atualizado_por=self.request.user)
+
+    @action(detail=False, methods=["get"], url_path="resolve")
+    def resolve(self, request):
+        uf = request.query_params.get("uf", "")
+        tipos_raw = request.query_params.get("tipos_acao", "")
+        tipos = [t.strip() for t in tipos_raw.split(",") if t.strip()] if tipos_raw else []
+        texto, fonte = resolver_clausula_porcentagem(uf, tipos)
+        return Response({
+            "uf": (uf or "").strip().upper(),
+            "tipos_acao": tipos,
+            "texto": texto,
+            "fonte": fonte,
+        })

@@ -20,6 +20,7 @@ class OabUfSerializer(serializers.ModelSerializer):
 
 class AdvogadoListSerializer(serializers.ModelSerializer):
     total_ufs = serializers.IntegerField(source="oabs.count", read_only=True)
+    oabs = OabUfSerializer(many=True, read_only=True)
 
     class Meta:
         model = Advogado
@@ -35,6 +36,7 @@ class AdvogadoListSerializer(serializers.ModelSerializer):
             "escritorio_endereco",
             "ativo",
             "total_ufs",
+            "oabs",
             "criado_em",
             "atualizado_em",
         ]

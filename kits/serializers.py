@@ -3,7 +3,18 @@ from rest_framework import serializers
 
 from cadastro.media_paths import build_media_file_url
 from cadastro.serializers import ClienteSerializer
-from .models import AcaoKit, AssociacaoKit, BancoKit, DocumentoKit, Kit, TarifaKit
+from cadastro.validators import validate_uf
+
+from .models import (
+    AcaoKit,
+    AssociacaoKit,
+    BancoKit,
+    ClausulaPorcentagemPadrao,
+    ClausulaPorcentagemUF,
+    DocumentoKit,
+    Kit,
+    TarifaKit,
+)
 
 
 class AcaoKitSerializer(serializers.ModelSerializer):
@@ -310,3 +321,67 @@ class AssociacaoKitSerializer(serializers.ModelSerializer):
         model = AssociacaoKit
         fields = ["id", "nome", "abreviacao", "ativo", "ordem"]
         read_only_fields = ["id"]
+
+
+def _user_nome(user):
+    if not user:
+        return None
+    return getattr(user, "nome_completo", None) or getattr(user, "username", None)
+
+
+class ClausulaPorcentagemPadraoSerializer(serializers.ModelSerializer):
+    atualizado_por_nome = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClausulaPorcentagemPadrao
+        fields = ["texto", "atualizado_em", "atualizado_por_nome"]
+        read_only_fields = ["atualizado_em", "atualizado_por_nome"]
+
+    def get_atualizado_por_nome(self, obj):
+        return _user_nome(obj.atualizado_por)
+
+
+_TIPOS_ACAO_VALIDOS = {v for v, _ in AcaoKit.TIPO_ACAO_CHOICES}
+
+
+class ClausulaPorcentagemUFSerializer(serializers.ModelSerializer):
+    atualizado_por_nome = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ClausulaPorcentagemUF
+        fields = ["id", "uf", "tipo_acao", "texto", "atualizado_em", "atualizado_por_nome"]
+        read_only_fields = ["id", "atualizado_em", "atualizado_por_nome"]
+
+    def get_atualizado_por_nome(self, obj):
+        return _user_nome(obj.atualizado_por)
+
+    def validate_uf(self, value):
+        value = (value or "").strip().upper()
+        validate_uf(value)
+        return value
+
+    def validate_tipo_acao(self, value):
+        value = (value or "").strip()
+        if value and value not in _TIPOS_ACAO_VALIDOS:
+            raise serializers.ValidationError("Tipo de ação inválido.")
+        return value
+
+    def validate_texto(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Informe o texto da cláusula.")
+        return value
+
+    def validate(self, attrs):
+        # Verifica unicidade (uf, tipo_acao) considerando registros existentes.
+        uf = attrs.get("uf") or (self.instance.uf if self.instance else "")
+        tipo = attrs.get("tipo_acao", self.instance.tipo_acao if self.instance else "")
+        if uf:
+            qs = ClausulaPorcentagemUF.objects.filter(uf=uf, tipo_acao=tipo)
+            if self.instance:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                rotulo = "Genérica" if not tipo else tipo
+                raise serializers.ValidationError(
+                    f"Já existe uma cláusula para {uf} ({rotulo})."
+                )
+        return attrs

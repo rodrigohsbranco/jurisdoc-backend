@@ -39,6 +39,9 @@ class Kit(models.Model):
         default="rascunho",
     )
 
+    clausula_porcentagem_snapshot = models.TextField(blank=True, default="")
+    advogados_snapshot = models.JSONField(default=list, blank=True)
+
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
@@ -172,3 +175,122 @@ class AssociacaoKit(models.Model):
 
     def __str__(self):
         return self.abreviacao or self.nome
+
+
+class ClausulaPorcentagemPadrao(models.Model):
+    """Texto padrão da cláusula de porcentagem do contrato do Kit.
+
+    Singleton: sempre existe exatamente uma linha (pk=1). Usado quando a
+    UF do cliente não tem variação cadastrada em ClausulaPorcentagemUF.
+    """
+
+    texto = models.TextField(blank=True, default="")
+    atualizado_em = models.DateTimeField(auto_now=True)
+    atualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    class Meta:
+        verbose_name = "Cláusula de porcentagem — padrão"
+        verbose_name_plural = "Cláusula de porcentagem — padrão"
+
+    def save(self, *args, **kwargs):
+        self.pk = 1
+        super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        # Não permite apagar o singleton.
+        return
+
+    @classmethod
+    def get_solo(cls):
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def __str__(self):
+        return "Cláusula de porcentagem — padrão"
+
+
+class ClausulaPorcentagemUF(models.Model):
+    """Variação da cláusula de porcentagem para uma UF (opcionalmente
+    restrita a um tipo de ação específico).
+
+    Sobrescreve o ClausulaPorcentagemPadrao. Quando tipo_acao=="",
+    é uma variação genérica daquela UF (vale para qualquer ação).
+    """
+
+    uf = models.CharField(max_length=2)
+    tipo_acao = models.CharField(
+        max_length=50,
+        blank=True,
+        default="",
+        help_text="Tipo de ação ao qual a variação se aplica. "
+        "Vazio = variação genérica para qualquer ação naquela UF.",
+    )
+    texto = models.TextField()
+    atualizado_em = models.DateTimeField(auto_now=True)
+    atualizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+    class Meta:
+        ordering = ["uf", "tipo_acao"]
+        verbose_name = "Cláusula de porcentagem — variação por UF"
+        verbose_name_plural = "Cláusula de porcentagem — variações por UF"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["uf", "tipo_acao"],
+                name="unique_clausula_uf_tipo",
+            ),
+        ]
+
+    def __str__(self):
+        suf = f"/{self.tipo_acao}" if self.tipo_acao else ""
+        return f"Cláusula de porcentagem — {self.uf}{suf}"
+
+
+def resolver_clausula_porcentagem(
+    uf: str | None,
+    tipos_acao: list[str] | None = None,
+) -> tuple[str, str]:
+    """Retorna (texto, fonte) para a UF/tipos de ação do kit.
+
+    Cascata:
+      1) Para cada tipo em tipos_acao (ordem): se existir (UF, tipo) → "uf_tipo"
+      2) Se nada bateu: (UF, "") → "uf"
+      3) Senão: padrão → "padrao"
+
+    fonte ∈ {"uf_tipo", "uf", "padrao"}.
+    """
+    uf = (uf or "").strip().upper()
+    tipos_acao = [t for t in (tipos_acao or []) if t]
+
+    if uf:
+        # 1) Específica (UF + tipo) — primeira que bater
+        for tipo in tipos_acao:
+            var = (
+                ClausulaPorcentagemUF.objects
+                .filter(uf=uf, tipo_acao=tipo)
+                .first()
+            )
+            if var:
+                return var.texto, "uf_tipo"
+
+        # 2) Genérica (UF + tipo_acao="")
+        var = (
+            ClausulaPorcentagemUF.objects
+            .filter(uf=uf, tipo_acao="")
+            .first()
+        )
+        if var:
+            return var.texto, "uf"
+
+    return ClausulaPorcentagemPadrao.get_solo().texto, "padrao"
