@@ -18,6 +18,11 @@ class Kit(models.Model):
         ("assinado", "Assinado"),
     ]
 
+    ORIGEM_CHOICES = [
+        ("jurisdoc", "JurisDoc"),
+        ("app", "App Flowalr"),
+    ]
+
     tipo = models.CharField(
         max_length=20,
         choices=TIPO_CHOICES,
@@ -37,6 +42,19 @@ class Kit(models.Model):
         max_length=15,
         choices=STATUS_CHOICES,
         default="rascunho",
+    )
+
+    origem = models.CharField(
+        max_length=10,
+        choices=ORIGEM_CHOICES,
+        default="jurisdoc",
+        db_index=True,
+    )
+    app_criado_por_nome = models.CharField(
+        max_length=200,
+        blank=True,
+        default="",
+        help_text="Nome do usuário do app que criou o kit (preenchido quando origem='app')",
     )
 
     clausula_porcentagem_snapshot = models.TextField(blank=True, default="")
