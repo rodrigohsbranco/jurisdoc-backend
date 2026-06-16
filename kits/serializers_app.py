@@ -1,9 +1,30 @@
 from rest_framework import serializers
 
 from cadastro.serializers import ClienteSerializer
+from cadastro.media_paths import build_media_file_url
 
-from .models import Kit
-from .serializers import AcaoKitSerializer, DocumentoKitSerializer
+from .models import DocumentoKit, Kit
+from .serializers import AcaoKitSerializer
+
+
+class AppDocumentoKitSerializer(serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+    nome_arquivo = serializers.SerializerMethodField()
+
+    class Meta:
+        model = DocumentoKit
+        fields = ["id", "tipo", "nome_arquivo", "url", "gerado_em"]
+
+    def get_url(self, obj):
+        request = self.context.get("request")
+        if obj.arquivo and obj.arquivo.name:
+            return build_media_file_url(request, obj.arquivo.name)
+        return None
+
+    def get_nome_arquivo(self, obj):
+        if obj.arquivo and obj.arquivo.name:
+            return obj.arquivo.name.split("/")[-1]
+        return None
 
 
 class KitAppListSerializer(serializers.ModelSerializer):
@@ -31,7 +52,7 @@ class KitAppListSerializer(serializers.ModelSerializer):
 class KitAppDetailSerializer(serializers.ModelSerializer):
     cliente_detail = ClienteSerializer(source="cliente", read_only=True)
     acoes = AcaoKitSerializer(many=True, read_only=True)
-    documentos = DocumentoKitSerializer(many=True, read_only=True)
+    documentos = AppDocumentoKitSerializer(many=True, read_only=True)
 
     class Meta:
         model = Kit

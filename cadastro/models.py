@@ -41,6 +41,7 @@ class Cliente(models.Model):
     # Endereço
     logradouro = models.CharField(max_length=120, blank=True)
     numero = models.CharField(max_length=20, blank=True)
+    complemento = models.CharField(max_length=100, blank=True)
     bairro = models.CharField(max_length=120, blank=True)
     cidade = models.CharField(max_length=120, blank=True)
     cep = models.CharField(max_length=8, blank=True, validators=[validate_cep])

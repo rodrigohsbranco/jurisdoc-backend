@@ -41,7 +41,7 @@ class KitAppViewSet(viewsets.ModelViewSet):
     pagination_class = None
     parser_classes = [JSONParser, MultiPartParser, FormParser]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ["tipo", "status", "cliente", "origem"]
+    filterset_fields = ["tipo", "status", "cliente", "origem", "app_criado_por_nome"]
     search_fields = ["cliente__nome_completo", "cliente__cpf", "app_criado_por_nome"]
     ordering_fields = ["criado_em", "atualizado_em", "status"]
     ordering = ["-criado_em"]
@@ -181,6 +181,33 @@ class KitAppViewSet(viewsets.ModelViewSet):
             return Response({"uf": uf, "texto": texto, "fonte": fonte, "ja_persistido": True})
 
         return Response({"uf": uf, "texto": texto, "fonte": fonte, "ja_persistido": False})
+
+    # ── Choices / metadados ──
+
+    @action(detail=False, methods=["get"])
+    def tipos(self, request):
+        """Retorna as opções de tipo de kit."""
+        return Response([
+            {"value": v, "label": l} for v, l in Kit.TIPO_CHOICES
+        ])
+
+    @action(detail=False, methods=["get"], url_path="tipos-acao")
+    def tipos_acao(self, request):
+        """Retorna as opções de tipo de ação."""
+        return Response([
+            {"value": v, "label": l} for v, l in AcaoKit.TIPO_ACAO_CHOICES
+        ])
+
+    # ── Documentos do kit (PDF) ──
+
+    @action(detail=True, methods=["get"])
+    def documentos(self, request, pk=None):
+        """Retorna os documentos gerados do kit com URL absoluta."""
+        from .serializers_app import AppDocumentoKitSerializer
+        kit = self.get_object()
+        docs = kit.documentos.all()
+        serializer = AppDocumentoKitSerializer(docs, many=True, context={"request": request})
+        return Response(serializer.data)
 
     # ── Stats ──
 

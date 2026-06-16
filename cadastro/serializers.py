@@ -68,6 +68,7 @@ class ClienteSerializer(serializers.ModelSerializer):
             # Endereço
             "logradouro",
             "numero",
+            "complemento",
             "bairro",
             "cidade",
             "cep",
