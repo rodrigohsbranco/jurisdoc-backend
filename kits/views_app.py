@@ -209,6 +209,28 @@ class KitAppViewSet(viewsets.ModelViewSet):
         serializer = AppDocumentoKitSerializer(docs, many=True, context={"request": request})
         return Response(serializer.data)
 
+    @action(detail=True, methods=["post"], url_path="gerar-documentos")
+    def gerar_documentos(self, request, pk=None):
+        """Gera os PDFs do kit server-side (docxtpl + LibreOffice) e armazena como DocumentoKit."""
+        from .services_documentos import gerar_documentos_kit
+        from .serializers_app import AppDocumentoKitSerializer
+        kit = self.get_object()
+        try:
+            docs, warnings = gerar_documentos_kit(kit)
+        except RuntimeError as e:
+            return Response({"detail": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except FileNotFoundError:
+            return Response(
+                {"detail": "LibreOffice não encontrado no servidor."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        serializer = AppDocumentoKitSerializer(docs, many=True, context={"request": request})
+        return Response({
+            "documentos": serializer.data,
+            "warnings": warnings,
+            "total": len(docs),
+        })
+
     # ── Stats ──
 
     @action(detail=False, methods=["get"])
