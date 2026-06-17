@@ -245,7 +245,7 @@ class AcaoKitAppViewSet(viewsets.ModelViewSet):
     def get_serializer(self, *args, **kwargs):
         data = kwargs.get("data")
         request = getattr(self, "request", None)
-        if data is not None and request is not None and hasattr(data, "copy"):
+        if data is not None and request is not None and hasattr(data, "setlist"):
             mutable = data.copy()
             for key in [
                 "historico_emprestimo_keep_paths",
