@@ -54,6 +54,14 @@ RELACAO_MAP = {
     "conjuge": "cônjuge",
 }
 
+# Tipos de ação que exibem número de contrato na procuração
+TIPOS_COM_CONTRATO = {
+    "cartao_credito_consignado",
+    "rmc",
+    "rcc",
+    "emprestimo_nao_autorizado",
+}
+
 # Keywords por tipo de kit (mesma lógica do KIT_TEMPLATE_DEFS_* do frontend)
 KIT_TEMPLATE_DEFS: dict[str, list[dict]] = {
     "bancario": [
@@ -387,6 +395,77 @@ def build_kit_context(kit: Kit) -> dict:
         "responsavel_legal_nome": c.responsavel_legal_nome or "",
         "responsavel_legal_cpf": _fmt_cpf(c.responsavel_legal_cpf or ""),
         "clausula_porcentagem": kit.clausula_porcentagem_snapshot or "",
+        # Defaults de procuração (sobrescritos pelo build_procuracao_context por ação)
+        "procuracao_frase_acao": "",
+        "procuracao_usa_numero_contrato": False,
+        "procuracao_detalhe_tipo": "",
+        "contrato_acao": "",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Contexto por ação — procuração
+# ---------------------------------------------------------------------------
+
+def _detalhe_bruto_procuracao(acao) -> str:
+    """Retorna o texto bruto de detalhe da ação para uso na procuração."""
+    if acao.tipo_acao == "tarifa_bancaria":
+        if acao.tarifa_questionada == "OUTROS":
+            return (acao.tarifa_questionada_outro or "").strip()
+        return acao.tarifa_questionada or ""
+    if acao.tipo_acao == "seguro_nao_autorizado":
+        return (acao.tipo_seguro or "").strip()
+    if acao.tipo_acao == "contribuicao_sindical_nao_autorizada":
+        return (acao.tipo_contribuicao or "").strip()
+    return ""
+
+
+def build_procuracao_context(base_context: dict, acao, kit: Kit) -> dict:
+    """Porta montarContextoProcuracao() do frontend — contexto por ação para a procuração."""
+    banco_nome = (acao.banco_outro if acao.nome_banco == "Outro" else acao.nome_banco or "").upper()
+    tipo_label = TIPOS_ACAO_LABELS.get(acao.tipo_acao, acao.tipo_acao)
+    usa_contrato = acao.tipo_acao in TIPOS_COM_CONTRATO
+    procuracao_detalhe_tipo = "" if usa_contrato else _detalhe_bruto_procuracao(acao).strip()
+    banco_com_inss = banco_nome  # procuração nunca leva "e INSS"
+    do_pronome = base_context.get("do", "do")
+
+    # Caso especial: contribuição sindical com associação em kit bancário
+    if (
+        acao.tipo_acao == "contribuicao_sindical_nao_autorizada"
+        and kit.tipo == "bancario"
+        and acao.associacao_id
+    ):
+        tipo_label = "contribuição não autorizada em benefício previdenciário"
+        banco_com_inss = (acao.associacao.abreviacao or acao.associacao.nome).upper().strip()
+        procuracao_detalhe_tipo = ""
+        do_pronome = "de(a)"
+
+    tarifa = ""
+    if acao.tipo_acao == "tarifa_bancaria" and acao.tarifa_questionada:
+        tarifa = (
+            (acao.tarifa_questionada_outro or "").strip()
+            if acao.tarifa_questionada == "OUTROS"
+            else acao.tarifa_questionada
+        )
+
+    # frase quando não há número de contrato
+    procuracao_frase_acao = (
+        ""
+        if usa_contrato
+        else (f" de {procuracao_detalhe_tipo}" if procuracao_detalhe_tipo else "")
+    )
+
+    return {
+        **base_context,
+        "do": do_pronome,
+        "bancos": banco_com_inss,
+        "tipos_acao": tipo_label,
+        "tarifa_questionada": tarifa,
+        "instituicao_re": banco_com_inss,
+        "contrato_acao": f"contrato nº {acao.numero_contrato or ''}",
+        "procuracao_usa_numero_contrato": usa_contrato,
+        "procuracao_detalhe_tipo": procuracao_detalhe_tipo,
+        "procuracao_frase_acao": procuracao_frase_acao,
     }
 
 
@@ -446,6 +525,43 @@ def _render_template_to_docx(tpl: Template, context: dict) -> bytes:
     finally:
         if normalized_path is not None:
             normalized_path.unlink(missing_ok=True)
+
+
+def _compose_docx_files(docx_bytes_list: list[bytes]) -> bytes:
+    """Combina múltiplos .docx em um único documento com quebra de página entre eles."""
+    import copy
+    from docx import Document
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    master = Document(BytesIO(docx_bytes_list[0]))
+    master_body = master.element.body
+    final_sect_pr = master_body.find(qn("w:sectPr"))
+
+    def add_to_master(element):
+        if final_sect_pr is not None:
+            final_sect_pr.addprevious(element)
+        else:
+            master_body.append(element)
+
+    for raw in docx_bytes_list[1:]:
+        page_break = OxmlElement("w:p")
+        run_elem = OxmlElement("w:r")
+        br = OxmlElement("w:br")
+        br.set(qn("w:type"), "page")
+        run_elem.append(br)
+        page_break.append(run_elem)
+        add_to_master(page_break)
+
+        doc = Document(BytesIO(raw))
+        for child in doc.element.body:
+            tag = child.tag.split("}")[-1] if "}" in child.tag else child.tag
+            if tag in ("p", "tbl"):
+                add_to_master(copy.deepcopy(child))
+
+    buf = BytesIO()
+    master.save(buf)
+    return buf.getvalue()
 
 
 def _docx_to_pdf(docx_bytes: bytes) -> bytes:
@@ -510,6 +626,7 @@ def gerar_documentos_kit(kit: Kit) -> tuple[list[DocumentoKit], list[str]]:
         )
 
     context = build_kit_context(kit)
+    acoes = list(kit.acoes.prefetch_related("associacao").all())
     include_domicilio = kit.cliente.comprovante_nome_cliente == "nao"
     valid_tipos = {v for v, _ in DocumentoKit.TIPO_CHOICES}
 
@@ -527,8 +644,21 @@ def gerar_documentos_kit(kit: Kit) -> tuple[list[DocumentoKit], list[str]]:
             continue
 
         try:
-            docx_bytes = _render_template_to_docx(tpl, context)
-            pdf_bytes = _docx_to_pdf(docx_bytes)
+            # Procuração bancária/marketing: uma página por ação, combinadas em um único PDF
+            if key == "procuracao" and kit.tipo != "previdenciario" and acoes:
+                action_docx_list: list[bytes] = []
+                for acao in acoes:
+                    per_ctx = build_procuracao_context(context, acao, kit)
+                    action_docx_list.append(_render_template_to_docx(tpl, per_ctx))
+                final_docx = (
+                    action_docx_list[0]
+                    if len(action_docx_list) == 1
+                    else _compose_docx_files(action_docx_list)
+                )
+                pdf_bytes = _docx_to_pdf(final_docx)
+            else:
+                docx_bytes = _render_template_to_docx(tpl, context)
+                pdf_bytes = _docx_to_pdf(docx_bytes)
         except FileNotFoundError as e:
             warnings.append(str(e))
             continue
