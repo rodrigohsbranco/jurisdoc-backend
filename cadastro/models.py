@@ -120,6 +120,17 @@ class Cliente(models.Model):
         help_text="Array JSON de benefícios. Cada item: {numero: string, tipo: string}"
     )
 
+    # Geolocalização da residência
+    latitude = models.FloatField(null=True, blank=True)
+    longitude = models.FloatField(null=True, blank=True)
+
+    # Fotos da residência (rua + casa, galeria única) — array de {path, name}
+    fotos_residencia = models.JSONField(
+        default=list,
+        blank=True,
+        help_text='Array JSON de fotos da residência. Cada item: {path, name}',
+    )
+
     # Status (soft delete)
     is_active = models.BooleanField(default=True, db_index=True)
 

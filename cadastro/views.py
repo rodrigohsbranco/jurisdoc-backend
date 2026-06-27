@@ -1,8 +1,11 @@
 # cadastro/views.py
 import os
+from io import BytesIO
 
 from django.conf import settings
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from PIL import Image, ImageOps
 
 from rest_framework import viewsets, permissions, filters, decorators, response, status
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -42,6 +45,8 @@ class ClienteViewSet(viewsets.ModelViewSet):
             "remove_comprovante": "clientes.editar",
             "upload_responsavel_docs": "clientes.editar",
             "remove_responsavel_doc": "clientes.editar",
+            "upload_fotos_residencia": "clientes.editar",
+            "remove_foto_residencia": "clientes.editar",
         })]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ClienteFilter
@@ -381,6 +386,111 @@ class ClienteViewSet(viewsets.ModelViewSet):
         instance.save(update_fields=["responsavel_imovel_docs"])
         return response.Response(
             {"responsavel_imovel_docs": self._docs_with_urls(new_docs, request)},
+            status=status.HTTP_200_OK,
+        )
+
+    # --- Fotos da residência (geolocalização) ---
+    FOTOS_RESIDENCIA_MAX = 10
+    FOTOS_RESIDENCIA_MIME = {"image/jpeg", "image/png", "image/webp"}
+
+    @staticmethod
+    def _comprimir_imagem(f):
+        """Redimensiona (máx 1920px) e recomprime como JPEG, removendo metadados/EXIF.
+        Retorna (ContentFile, nome_final)."""
+        img = Image.open(f)
+        img = ImageOps.exif_transpose(img)  # corrige orientação antes de descartar EXIF
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        img.thumbnail((1920, 1920))  # mantém proporção, sem upscale
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=82, optimize=True)
+        buffer.seek(0)
+        base = os.path.splitext(os.path.basename(f.name))[0]
+        return ContentFile(buffer.read()), f"{base}.jpg"
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="fotos-residencia/upload",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_fotos_residencia(self, request, pk=None):
+        """
+        Upload de fotos da residência (múltiplos arquivos).
+        Aceita campo 'files'. Valida MIME (jpg/png/webp) e limite de 10 fotos.
+        Comprime via Pillow e salva em clientes/fotos_residencia/<pk>/.
+        """
+        instance = self.get_object()
+        files = request.FILES.getlist("files")
+        if not files:
+            return response.Response(
+                {"detail": "Nenhum arquivo enviado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(instance.fotos_residencia or [])
+        if len(docs) + len(files) > self.FOTOS_RESIDENCIA_MAX:
+            return response.Response(
+                {"detail": f"Limite de {self.FOTOS_RESIDENCIA_MAX} fotos por residência."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for f in files:
+            if f.content_type not in self.FOTOS_RESIDENCIA_MIME:
+                return response.Response(
+                    {"detail": f"Formato não suportado: {f.name}. Use JPG, PNG ou WEBP."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        for f in files:
+            try:
+                content, nome = self._comprimir_imagem(f)
+            except Exception:
+                return response.Response(
+                    {"detail": f"Imagem inválida ou corrompida: {f.name}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            path = default_storage.save(
+                f"clientes/fotos_residencia/{instance.pk}/{nome}", content
+            )
+            docs.append({"path": path, "name": nome})
+
+        instance.fotos_residencia = docs
+        instance.save(update_fields=["fotos_residencia"])
+
+        result = self._docs_with_urls(docs, request)
+        return response.Response({"fotos_residencia": result}, status=status.HTTP_200_OK)
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="fotos-residencia/remove",
+    )
+    def remove_foto_residencia(self, request, pk=None):
+        """Remove uma foto da residência pelo path. Body: {"path": "..."}"""
+        instance = self.get_object()
+        path_to_remove = request.data.get("path")
+        if not path_to_remove:
+            return response.Response(
+                {"detail": "Informe o campo 'path'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(instance.fotos_residencia or [])
+        new_docs = [d for d in docs if d.get("path") != path_to_remove]
+        if len(new_docs) == len(docs):
+            return response.Response(
+                {"detail": "Foto não encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if default_storage.exists(path_to_remove):
+            default_storage.delete(path_to_remove)
+
+        instance.fotos_residencia = new_docs
+        instance.save(update_fields=["fotos_residencia"])
+        return response.Response(
+            {"fotos_residencia": self._docs_with_urls(new_docs, request)},
             status=status.HTTP_200_OK,
         )
 

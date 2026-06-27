@@ -18,6 +18,7 @@ class ClienteSerializer(serializers.ModelSerializer):
     responsavel_legal_documentos = serializers.SerializerMethodField()
     comprovantes_residencia = serializers.SerializerMethodField()
     responsavel_imovel_docs = serializers.SerializerMethodField()
+    fotos_residencia = serializers.SerializerMethodField()
 
     def get_documentos_pessoais(self, obj):
         return self._docs_with_urls(obj.documentos_pessoais or [])
@@ -39,6 +40,9 @@ class ClienteSerializer(serializers.ModelSerializer):
 
     def get_responsavel_imovel_docs(self, obj):
         return self._docs_with_urls(obj.responsavel_imovel_docs or [])
+
+    def get_fotos_residencia(self, obj):
+        return self._docs_with_urls(obj.fotos_residencia or [])
 
     def _docs_with_urls(self, docs):
         request = self.context.get("request")
@@ -104,6 +108,10 @@ class ClienteSerializer(serializers.ModelSerializer):
             "telefones_extras",
             # Documentos pessoais
             "documentos_pessoais",
+            # Geolocalização da residência
+            "latitude",
+            "longitude",
+            "fotos_residencia",
             # Benefícios
             "beneficios",
             # Status
