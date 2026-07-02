@@ -13,6 +13,7 @@ from accounts.service_auth import IsServiceAdmin, ServiceClientAuthentication
 from .models import AcaoKit, Kit, resolver_clausula_porcentagem
 from .serializers import AcaoKitSerializer
 from .serializers_app import KitAppCreateSerializer, KitAppDetailSerializer, KitAppListSerializer
+from .services_documentos import KIT_TEMPLATE_DEFS, TIPOS_COM_CONTRATO
 
 
 TRANSICOES_VALIDAS = {
@@ -121,6 +122,11 @@ class KitAppViewSet(viewsets.ModelViewSet):
                 {"detail": f"Transição de '{kit.status}' para '{novo_status}' não é permitida."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if novo_status == "finalizado" and kit.tipo != "previdenciario" and kit.acoes.count() == 0:
+            return Response(
+                {"detail": "O kit precisa ter pelo menos uma ação para ser finalizado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         kit.status = novo_status
         kit.save(update_fields=["status", "atualizado_em"])
         return Response(KitAppDetailSerializer(kit, context={"request": request}).data)
@@ -193,10 +199,76 @@ class KitAppViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=["get"], url_path="tipos-acao")
     def tipos_acao(self, request):
-        """Retorna as opções de tipo de ação."""
+        """Retorna as opções de tipo de ação com flag de número de contrato."""
         return Response([
-            {"value": v, "label": l} for v, l in AcaoKit.TIPO_ACAO_CHOICES
+            {
+                "value": v,
+                "label": l,
+                "tem_numero_contrato": v in TIPOS_COM_CONTRATO,
+            }
+            for v, l in AcaoKit.TIPO_ACAO_CHOICES
         ])
+
+    @action(detail=False, methods=["get"])
+    def metadados(self, request):
+        """
+        Retorna todos os metadados de fluxo necessários para o app construir sua UX.
+
+        Inclui: tipos de kit (com regras de fluxo), tipos de ação, status possíveis
+        e transições válidas de status. Chame uma vez na inicialização do app.
+        """
+        _DOCS_CONDICIONAIS = {
+            "domicilio": "comprovante_nome_cliente == 'nao'",
+        }
+        _TIPO_META = {
+            "bancario": {
+                "requer_acoes": True,
+                "requer_data_nascimento": False,
+                "requer_hipossuficiencia": True,
+            },
+            "previdenciario": {
+                "requer_acoes": False,
+                "requer_data_nascimento": True,
+                "requer_hipossuficiencia": False,
+            },
+            "marketing": {
+                "requer_acoes": True,
+                "requer_data_nascimento": False,
+                "requer_hipossuficiencia": True,
+            },
+        }
+
+        tipos_kit = []
+        for value, label in Kit.TIPO_CHOICES:
+            defs = KIT_TEMPLATE_DEFS.get(value, [])
+            meta = _TIPO_META.get(value, {})
+            all_doc_keys = [d["key"] for d in defs]
+            tipos_kit.append({
+                "value": value,
+                "label": label,
+                **meta,
+                "documentos_fixos": [k for k in all_doc_keys if k not in _DOCS_CONDICIONAIS],
+                "documentos_condicionais": [
+                    {"key": k, "condicao": _DOCS_CONDICIONAIS[k]}
+                    for k in all_doc_keys if k in _DOCS_CONDICIONAIS
+                ],
+            })
+
+        return Response({
+            "tipos_kit": tipos_kit,
+            "tipos_acao": [
+                {
+                    "value": v,
+                    "label": l,
+                    "tem_numero_contrato": v in TIPOS_COM_CONTRATO,
+                }
+                for v, l in AcaoKit.TIPO_ACAO_CHOICES
+            ],
+            "status_choices": [
+                {"value": v, "label": l} for v, l in Kit.STATUS_CHOICES
+            ],
+            "transicoes_validas": TRANSICOES_VALIDAS,
+        })
 
     # ── Documentos do kit (PDF) ──
 

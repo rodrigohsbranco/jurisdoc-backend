@@ -5,6 +5,7 @@ from cadastro.media_paths import build_media_file_url
 
 from .models import DocumentoKit, Kit
 from .serializers import AcaoKitSerializer
+from .services_documentos import KIT_TEMPLATE_DEFS
 
 
 class AppDocumentoKitSerializer(serializers.ModelSerializer):
@@ -31,16 +32,22 @@ class KitAppListSerializer(serializers.ModelSerializer):
     cliente_nome = serializers.CharField(source="cliente.nome_completo", read_only=True)
     cliente_cpf = serializers.CharField(source="cliente.cpf", read_only=True)
     total_acoes = serializers.IntegerField(source="acoes.count", read_only=True)
+    tipo_display = serializers.CharField(source="get_tipo_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    requer_acoes = serializers.SerializerMethodField()
 
     class Meta:
         model = Kit
         fields = [
             "id",
             "tipo",
+            "tipo_display",
             "cliente",
             "cliente_nome",
             "cliente_cpf",
             "status",
+            "status_display",
+            "requer_acoes",
             "total_acoes",
             "origem",
             "app_criado_por_nome",
@@ -48,20 +55,31 @@ class KitAppListSerializer(serializers.ModelSerializer):
             "atualizado_em",
         ]
 
+    def get_requer_acoes(self, obj):
+        return obj.tipo != "previdenciario"
+
 
 class KitAppDetailSerializer(serializers.ModelSerializer):
     cliente_detail = ClienteSerializer(source="cliente", read_only=True)
     acoes = AcaoKitSerializer(many=True, read_only=True)
     documentos = AppDocumentoKitSerializer(many=True, read_only=True)
+    tipo_display = serializers.CharField(source="get_tipo_display", read_only=True)
+    status_display = serializers.CharField(source="get_status_display", read_only=True)
+    requer_acoes = serializers.SerializerMethodField()
+    documentos_esperados = serializers.SerializerMethodField()
 
     class Meta:
         model = Kit
         fields = [
             "id",
             "tipo",
+            "tipo_display",
             "cliente",
             "cliente_detail",
             "status",
+            "status_display",
+            "requer_acoes",
+            "documentos_esperados",
             "acoes",
             "documentos",
             "advogados_snapshot",
@@ -80,6 +98,13 @@ class KitAppDetailSerializer(serializers.ModelSerializer):
             "advogados_snapshot",
             "clausula_porcentagem_snapshot",
         ]
+
+    def get_requer_acoes(self, obj):
+        return obj.tipo != "previdenciario"
+
+    def get_documentos_esperados(self, obj):
+        defs = KIT_TEMPLATE_DEFS.get(obj.tipo, KIT_TEMPLATE_DEFS["bancario"])
+        return [d["key"] for d in defs]
 
 
 class KitAppCreateSerializer(serializers.ModelSerializer):
