@@ -281,6 +281,53 @@ class KitAppViewSet(viewsets.ModelViewSet):
         serializer = AppDocumentoKitSerializer(docs, many=True, context={"request": request})
         return Response(serializer.data)
 
+    @action(detail=True, methods=["get"], url_path="documentos/unificado")
+    def documentos_unificado(self, request, pk=None):
+        """
+        Mescla todos os PDFs do kit em um único arquivo e retorna para download.
+
+        GET /api/app/kits/{id}/documentos/unificado/
+        Response: application/pdf — Content-Disposition: attachment; filename="kit_{id}_completo.pdf"
+        """
+        from io import BytesIO
+        from django.http import HttpResponse
+        from pypdf import PdfWriter
+
+        kit = self.get_object()
+        docs = list(kit.documentos.all())
+
+        if not docs:
+            return Response(
+                {"detail": "Nenhum documento gerado para este kit."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        writer = PdfWriter()
+        try:
+            for doc in docs:
+                if not doc.arquivo or not doc.arquivo.name:
+                    continue
+                with doc.arquivo.open("rb") as f:
+                    writer.append(f)
+        except FileNotFoundError as e:
+            return Response(
+                {"detail": f"Arquivo não encontrado no servidor: {e}. Gere os documentos novamente via gerar-documentos/."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+        except Exception as e:
+            return Response(
+                {"detail": f"Falha ao mesclar os documentos: {e}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        buf = BytesIO()
+        writer.write(buf)
+        buf.seek(0)
+
+        pdf_response = HttpResponse(buf.read(), content_type="application/pdf")
+        pdf_response["Content-Disposition"] = f'attachment; filename="kit_{kit.id}_completo.pdf"'
+        return pdf_response
+
     @action(detail=True, methods=["post"], url_path="gerar-documentos")
     def gerar_documentos(self, request, pk=None):
         """Gera os PDFs do kit server-side (docxtpl + LibreOffice) e armazena como DocumentoKit."""
