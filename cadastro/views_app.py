@@ -1,3 +1,5 @@
+import re
+
 from django.core.files.storage import default_storage
 
 from rest_framework import viewsets, filters, decorators, response, status
@@ -9,6 +11,18 @@ from .media_paths import build_media_file_url
 from .models import Cliente
 from .filters import ClienteFilter
 from .serializers import ClienteSerializer
+
+_STATUS_DISPLAY = {
+    "rascunho": "Rascunho",
+    "acoes": "Em andamento",
+    "finalizado": "Pend. assinatura",
+    "assinado": "Assinado",
+}
+_TIPO_DISPLAY = {
+    "bancario": "Bancário",
+    "previdenciario": "Previdenciário",
+    "marketing": "Marketing",
+}
 
 
 _RELATED_DOCS_FIELD_MAP = {
@@ -56,6 +70,62 @@ class ClienteAppViewSet(viewsets.ModelViewSet):
         instance.is_active = True
         instance.save()
         return response.Response(self.get_serializer(instance).data)
+
+    # ------------------------------------------------------------------
+    # Busca por CPF com resumo de kits
+    # ------------------------------------------------------------------
+
+    @decorators.action(detail=False, methods=["get"], url_path="buscar-por-cpf")
+    def buscar_por_cpf(self, request):
+        """
+        Consulta cliente pelo CPF e retorna seus dados + resumo dos kits existentes.
+
+        GET /api/app/clientes/buscar-por-cpf/?cpf=01234567890
+
+        Resposta quando encontrado:
+          { "encontrado": true, "cliente": {...}, "kits": [{id, tipo, tipo_display, status, status_display, criado_em}] }
+
+        Resposta quando não encontrado:
+          { "encontrado": false, "cliente": null, "kits": [] }
+        """
+        from kits.models import Kit
+
+        cpf_raw = request.query_params.get("cpf", "")
+        cpf = re.sub(r"\D", "", cpf_raw)
+        if len(cpf) != 11:
+            return response.Response(
+                {"detail": "Informe o CPF com 11 dígitos (apenas números ou formatado)."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        cliente = Cliente.objects.filter(cpf=cpf, is_active=True).first()
+        if cliente is None:
+            return response.Response({"encontrado": False, "cliente": None, "kits": []})
+
+        kits = (
+            Kit.objects
+            .filter(cliente=cliente)
+            .only("id", "tipo", "status", "criado_em")
+            .order_by("-criado_em")
+        )
+
+        kits_data = [
+            {
+                "id": k.id,
+                "tipo": k.tipo,
+                "tipo_display": _TIPO_DISPLAY.get(k.tipo, k.tipo),
+                "status": k.status,
+                "status_display": _STATUS_DISPLAY.get(k.status, k.status),
+                "criado_em": k.criado_em,
+            }
+            for k in kits
+        ]
+
+        return response.Response({
+            "encontrado": True,
+            "cliente": self.get_serializer(cliente).data,
+            "kits": kits_data,
+        })
 
     # ------------------------------------------------------------------
     # Documentos pessoais
