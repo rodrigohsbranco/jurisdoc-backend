@@ -297,8 +297,12 @@ def build_kit_context(kit: Kit) -> dict:
     if nao_socios:
         advogados_estado = "; e ".join(_qualificar_advogado(a) for a in nao_socios)
 
+    # A unidade de apoio administrativo deve corresponder ao estado da ação
+    # (UF do cliente), não a uma OAB resolvida por fallback (SC ou 1ª cadastrada).
+    # Sem esse guard, um advogado sem OAB na UF do cliente injetaria a unidade
+    # de outro estado (ex.: Arapiraca/AL num kit de cliente de SC).
     for adv in snapshot:
-        if adv.get("unidade_apoio_endereco"):
+        if adv.get("oab_fonte") == "uf_cliente" and adv.get("unidade_apoio_endereco"):
             unidade_apoio = f", unidade de apoio administrativo na {adv['unidade_apoio_endereco']}"
             break
 
