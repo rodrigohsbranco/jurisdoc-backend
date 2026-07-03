@@ -201,6 +201,19 @@ class TemplateViewSet(viewsets.ModelViewSet):
         numbered = add_page_numbering_simple(docx_bytes)
         return self._convert_docx_bytes_to_pdf(numbered)
 
+    def _merge_pdfs(self, pdf_list: list[bytes]) -> bytes:
+        """Concatena PDFs já renderizados, sem re-numerar. Cada PDF preserva
+        a numeração 'Página X de Y' que recebeu isoladamente."""
+        from pypdf import PdfReader, PdfWriter
+        writer = PdfWriter()
+        for pdf in pdf_list:
+            reader = PdfReader(BytesIO(pdf))
+            for page in reader.pages:
+                writer.add_page(page)
+        out = BytesIO()
+        writer.write(out)
+        return out.getvalue()
+
     @action(detail=False, methods=["post"])
     def compose(self, request):
         """Combina múltiplos .docx em um único documento com quebra de página entre cada."""
@@ -280,7 +293,23 @@ class TemplateViewSet(viewsets.ModelViewSet):
         filename = request.data.get("filename", "documentos")
 
         skip_pages = _truthy(request.data.get("skip_page_numbering"))
+        per_document = _truthy(request.data.get("per_document_numbering"))
         try:
+            if per_document:
+                # Paginação por documento: cada arquivo é numerado isoladamente
+                # ('Página X de Y' relativo às próprias páginas, ou nada se for
+                # 1 página) e só então os PDFs são concatenados. Assim cada doc
+                # reinicia em 1, independentemente da posição no PDF final.
+                pdfs = []
+                for f in files:
+                    content = b"".join(chunk for chunk in f.chunks())
+                    content = flatten_inherited_formatting(content)
+                    pdfs.append(self._convert_with_conditional_page_numbering(content))
+                pdf_bytes = self._merge_pdfs(pdfs)
+                response = HttpResponse(pdf_bytes, content_type="application/pdf")
+                response["Content-Disposition"] = f'attachment; filename="{filename}.pdf"'
+                return response
+
             # Flatten cada arquivo antes de compor: cada entrada vira self-contained
             # (formatação direta em cada run), garantindo render correto pelo
             # LibreOffice mesmo após a perda da styles.xml original na composição.
