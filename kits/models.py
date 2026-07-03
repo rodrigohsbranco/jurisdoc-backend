@@ -287,9 +287,16 @@ def resolver_clausula_porcentagem(
       3) Senão: padrão → "padrao"
 
     fonte ∈ {"uf_tipo", "uf", "padrao"}.
+
+    Precedência: "tarifa_bancaria" sempre vem primeiro. Em kits com ações
+    mistas (ex.: tarifa + RMC), a cláusula de tarifa (40% direto) deve
+    prevalecer sobre as demais (30% + 10%), independentemente da ordem de
+    criação das ações.
     """
     uf = (uf or "").strip().upper()
     tipos_acao = [t for t in (tipos_acao or []) if t]
+    # Ordenação estável: tarifa_bancaria à frente, resto mantém ordem original.
+    tipos_acao = sorted(tipos_acao, key=lambda t: 0 if t == "tarifa_bancaria" else 1)
 
     if uf:
         # 1) Específica (UF + tipo) — primeira que bater
