@@ -56,8 +56,13 @@ class AdvogadoViewSet(viewsets.ModelViewSet):
         result = []
         for adv in advogados:
             oab = adv.oabs.filter(uf=uf).first()
+            # oab_fonte alinhado ao snapshot: "uf_cliente" quando a OAB bate
+            # com a UF do cliente; "fallback_sc" quando o sócio cai na OAB/SC.
+            # Consumido pelo front para só usar a unidade de apoio da UF certa.
+            oab_fonte = "uf_cliente" if oab else ""
             if not oab and adv.is_socio:
                 oab = adv.oabs.filter(uf="SC").first()
+                oab_fonte = "fallback_sc" if oab else ""
             result.append({
                 "id": adv.id,
                 "nome_completo": adv.nome_completo,
@@ -69,6 +74,7 @@ class AdvogadoViewSet(viewsets.ModelViewSet):
                 "escritorio_cnpj": adv.escritorio_cnpj,
                 "tipos_acao": (oab.tipos_acao if oab else None) or [],
                 "numero_oab": oab.numero_oab if oab else "",
+                "oab_fonte": oab_fonte,
                 "unidade_apoio_nome": oab.unidade_apoio_nome if oab else "",
                 "unidade_apoio_endereco": oab.unidade_apoio_endereco if oab else "",
             })
