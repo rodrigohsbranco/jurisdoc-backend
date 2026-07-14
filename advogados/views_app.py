@@ -44,9 +44,10 @@ class AdvogadoAppViewSet(viewsets.ReadOnlyModelViewSet):
 
         result = []
         for adv in advogados:
-            oab = adv.oabs.filter(uf=uf).first()
+            adv_oabs = list(adv.oabs.all())  # usa o prefetch, sem query extra
+            oab = next((o for o in adv_oabs if o.uf == uf), None)
             if not oab and adv.is_socio:
-                oab = adv.oabs.filter(uf="SC").first()
+                oab = next((o for o in adv_oabs if o.uf == "SC"), None)
             result.append({
                 "id": adv.id,
                 "nome_completo": adv.nome_completo,

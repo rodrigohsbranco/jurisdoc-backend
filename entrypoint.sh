@@ -8,6 +8,7 @@ fi
 
 exec gunicorn \
   --workers 2 \
+  --timeout 120 \
   -b 0.0.0.0:8000 \
   --log-level debug \
   --access-logfile - \

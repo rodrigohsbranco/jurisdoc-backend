@@ -259,6 +259,8 @@ class KitListSerializer(serializers.ModelSerializer):
             "criado_por_nome",
             "status",
             "total_acoes",
+            "origem",
+            "app_criado_por_nome",
             "criado_em",
             "atualizado_em",
         ]

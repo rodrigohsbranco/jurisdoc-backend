@@ -138,16 +138,16 @@ def sugerir_advogados(uf_cliente: str, tipos_acao_kit: set[str]) -> list[int]:
     )
     out: list[int] = []
     for adv in advogados:
-        oab_uf = adv.oabs.filter(uf=uf_cliente).first()
-        oab_sc = adv.oabs.filter(uf="SC").first()
+        adv_oabs = list(adv.oabs.all())  # usa o prefetch, sem query extra por advogado
 
         if adv.is_socio:
-            # Sócio entra se tem OAB na UF ou em SC (cascata futura cobre o resto).
-            if oab_uf or oab_sc:
-                out.append(adv.id)
+            # Sócios entram sempre, igual ao por-uf. A cascata de OAB resolve
+            # na hora de montar o snapshot (resolver_oab).
+            out.append(adv.id)
             continue
 
         # Não-sócio precisa ter OAB na UF do cliente E atuar em algum tipo.
+        oab_uf = next((o for o in adv_oabs if o.uf.upper() == uf_cliente), None)
         if not oab_uf:
             continue
         if _advogado_atua_no_kit(list(oab_uf.tipos_acao or []), tipos_acao_kit):
