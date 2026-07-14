@@ -47,6 +47,8 @@ class ClienteViewSet(viewsets.ModelViewSet):
             "remove_responsavel_doc": "clientes.editar",
             "upload_fotos_residencia": "clientes.editar",
             "remove_foto_residencia": "clientes.editar",
+            "upload_foto_cliente": "clientes.editar",
+            "remove_foto_cliente": "clientes.editar",
         })]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ClienteFilter
@@ -493,6 +495,63 @@ class ClienteViewSet(viewsets.ModelViewSet):
             {"fotos_residencia": self._docs_with_urls(new_docs, request)},
             status=status.HTTP_200_OK,
         )
+
+    # --- Foto 3x4 do cliente (única) ---
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="foto-cliente/upload",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_foto_cliente(self, request, pk=None):
+        """
+        Upload da foto 3x4 do cliente (único arquivo, campo 'file').
+        Substitui a anterior, valida MIME (jpg/png/webp) e comprime via Pillow.
+        """
+        instance = self.get_object()
+        f = request.FILES.get("file")
+        if not f:
+            return response.Response(
+                {"detail": "Nenhum arquivo enviado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if f.content_type not in self.FOTOS_RESIDENCIA_MIME:
+            return response.Response(
+                {"detail": f"Formato não suportado: {f.name}. Use JPG, PNG ou WEBP."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            content, nome = self._comprimir_imagem(f)
+        except Exception:
+            return response.Response(
+                {"detail": f"Imagem inválida ou corrompida: {f.name}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Remove a foto anterior, se houver (só uma por cliente).
+        anterior = instance.foto_cliente or {}
+        if anterior.get("path") and default_storage.exists(anterior["path"]):
+            default_storage.delete(anterior["path"])
+
+        path = default_storage.save(
+            f"clientes/foto_cliente/{instance.pk}/{nome}", content
+        )
+        instance.foto_cliente = {"path": path, "name": nome}
+        instance.save(update_fields=["foto_cliente"])
+
+        result = self._docs_with_urls([instance.foto_cliente], request)[0]
+        return response.Response({"foto_cliente": result}, status=status.HTTP_200_OK)
+
+    @decorators.action(detail=True, methods=["post"], url_path="foto-cliente/remove")
+    def remove_foto_cliente(self, request, pk=None):
+        """Remove a foto 3x4 do cliente."""
+        instance = self.get_object()
+        anterior = instance.foto_cliente or {}
+        if anterior.get("path") and default_storage.exists(anterior["path"]):
+            default_storage.delete(anterior["path"])
+        instance.foto_cliente = None
+        instance.save(update_fields=["foto_cliente"])
+        return response.Response({"foto_cliente": None}, status=status.HTTP_200_OK)
 
     @staticmethod
     def _docs_with_urls(docs, request):
