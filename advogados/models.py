@@ -12,6 +12,10 @@ class Advogado(models.Model):
     estado_civil = models.CharField(max_length=20, blank=True)
     genero = models.CharField(max_length=15, choices=GENERO_CHOICES, default="masculino")
     is_socio = models.BooleanField(default=False, help_text="Sócio do escritório Azevedo Lima & Rebonatto")
+    fixo_previdenciario = models.BooleanField(
+        default=False,
+        help_text="Incluído automaticamente em todo kit previdenciário — o app não exibe etapa de seleção de advogados para esse tipo",
+    )
     escritorio_nome = models.CharField(max_length=200, blank=True, help_text="Nome do escritório individual (não-sócios)")
     escritorio_cnpj = models.CharField(max_length=20, blank=True, help_text="CNPJ do escritório individual")
     escritorio_endereco = models.TextField(blank=True, help_text="Endereço completo do escritório individual")

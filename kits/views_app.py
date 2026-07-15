@@ -26,6 +26,22 @@ TRANSICOES_VALIDAS = {
 _APP_SYSTEM_USERNAME = "app_flowalr"
 
 
+def _auto_snapshot_previdenciario(kit) -> None:
+    """Salva o snapshot de advogados fixos do kit previdenciário.
+
+    Chamado na criação do kit e antes de gerar os documentos, garantindo que
+    mudanças no campo fixo_previdenciario reflitam sem precisar recriar o kit.
+    """
+    from .services_advogados import ids_fixos_previdenciario, montar_snapshot
+    ids = ids_fixos_previdenciario()
+    if not ids:
+        return
+    uf = (getattr(kit.cliente, "uf", "") or "").upper()
+    snapshot, _ = montar_snapshot(ids, uf)
+    kit.advogados_snapshot = snapshot
+    kit.save(update_fields=["advogados_snapshot"])
+
+
 def _get_app_user():
     User = get_user_model()
     try:
@@ -63,7 +79,9 @@ class KitAppViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         app_user = _get_app_user()
-        serializer.save(criado_por=app_user, origem="app")
+        kit = serializer.save(criado_por=app_user, origem="app")
+        if kit.tipo == "previdenciario":
+            _auto_snapshot_previdenciario(kit)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -139,7 +157,7 @@ class KitAppViewSet(viewsets.ModelViewSet):
         kit = self.get_object()
         uf = (getattr(kit.cliente, "uf", "") or "").upper()
         tipos = set(kit.acoes.values_list("tipo_acao", flat=True))
-        ids = sugerir_advogados(uf, tipos)
+        ids = sugerir_advogados(uf, tipos, tipo_kit=kit.tipo)
         return Response({"advogados_ids": ids, "uf_cliente": uf})
 
     @action(detail=True, methods=["get", "post"], url_path="advogados")
@@ -225,16 +243,19 @@ class KitAppViewSet(viewsets.ModelViewSet):
                 "requer_acoes": True,
                 "requer_data_nascimento": False,
                 "requer_hipossuficiencia": True,
+                "requer_selecao_advogados": True,
             },
             "previdenciario": {
                 "requer_acoes": False,
                 "requer_data_nascimento": True,
                 "requer_hipossuficiencia": False,
+                "requer_selecao_advogados": False,
             },
             "marketing": {
                 "requer_acoes": True,
                 "requer_data_nascimento": False,
                 "requer_hipossuficiencia": True,
+                "requer_selecao_advogados": True,
             },
         }
 
@@ -334,6 +355,10 @@ class KitAppViewSet(viewsets.ModelViewSet):
         from .services_documentos import gerar_documentos_kit
         from .serializers_app import AppDocumentoKitSerializer
         kit = self.get_object()
+        # Para previdenciário sempre refresha o snapshot com os advogados fixos atuais,
+        # garantindo que mudanças no cadastro reflitam nos documentos sem re-criar o kit.
+        if kit.tipo == "previdenciario":
+            _auto_snapshot_previdenciario(kit)
         try:
             docs, warnings = gerar_documentos_kit(kit)
         except RuntimeError as e:

@@ -120,14 +120,28 @@ def _advogado_atua_no_kit(tipos_acao_advogado: list[str], tipos_acao_kit: set[st
     return any(t in tipos_acao_kit for t in tipos_acao_advogado)
 
 
-def sugerir_advogados(uf_cliente: str, tipos_acao_kit: set[str]) -> list[int]:
-    """Retorna lista de IDs de Advogados sugeridos pra UF/tipos_acao do kit.
+def ids_fixos_previdenciario() -> list[int]:
+    """IDs dos advogados marcados como fixo_previdenciario=True e ativos."""
+    return list(
+        Advogado.objects.filter(fixo_previdenciario=True, ativo=True)
+        .values_list("id", flat=True)
+    )
 
-    Regra (mesma do `por-uf` + filtro do front):
-    - Sócios ativos que têm OAB na UF do cliente OU OAB/SC entram sempre.
+
+def sugerir_advogados(uf_cliente: str, tipos_acao_kit: set[str], tipo_kit: str = "") -> list[int]:
+    """Retorna lista de IDs de Advogados sugeridos para o kit.
+
+    Para kits previdenciários retorna diretamente os advogados fixos
+    (fixo_previdenciario=True), ignorando UF e tipos de ação.
+
+    Para os demais tipos:
+    - Sócios ativos entram sempre.
     - Não-sócios ativos com OAB na UF do cliente entram se atuam em algum
       tipo de ação do kit (ou se 'todas' / sem filtro).
     """
+    if tipo_kit == "previdenciario":
+        return ids_fixos_previdenciario()
+
     uf_cliente = (uf_cliente or "").strip().upper()
     if not uf_cliente:
         return []
