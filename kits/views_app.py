@@ -13,7 +13,7 @@ from accounts.service_auth import IsServiceAdmin, ServiceClientAuthentication
 from .models import AcaoKit, Kit, resolver_clausula_porcentagem
 from .serializers import AcaoKitSerializer
 from .serializers_app import KitAppCreateSerializer, KitAppDetailSerializer, KitAppListSerializer
-from .services_documentos import KIT_TEMPLATE_DEFS, TIPOS_COM_CONTRATO
+from .services_documentos import KIT_TEMPLATE_DEFS, TIPOS_COM_CONTRATO, slug_nome_cliente
 
 
 TRANSICOES_VALIDAS = {
@@ -345,8 +345,9 @@ class KitAppViewSet(viewsets.ModelViewSet):
         writer.write(buf)
         buf.seek(0)
 
+        cliente_slug = slug_nome_cliente(kit.cliente.nome_completo or "")
         pdf_response = HttpResponse(buf.read(), content_type="application/pdf")
-        pdf_response["Content-Disposition"] = f'attachment; filename="kit_{kit.id}_completo.pdf"'
+        pdf_response["Content-Disposition"] = f'attachment; filename="kit_completo_{cliente_slug}.pdf"'
         return pdf_response
 
     @action(detail=True, methods=["post"], url_path="gerar-documentos")

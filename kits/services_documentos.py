@@ -94,6 +94,13 @@ def _normalize(s: str) -> str:
     return unicodedata.normalize("NFD", s).encode("ascii", "ignore").decode("ascii").lower().strip()
 
 
+def slug_nome_cliente(nome: str) -> str:
+    """'José da Silva' → 'JOSE_DA_SILVA' (para nomes de arquivo)."""
+    sem_acento = unicodedata.normalize("NFD", nome).encode("ascii", "ignore").decode("ascii")
+    sem_acento = re.sub(r"[^a-zA-Z0-9\s]", "", sem_acento)
+    return "_".join(sem_acento.upper().split())
+
+
 def _fmt_cpf(v: str) -> str:
     d = re.sub(r"\D", "", str(v or ""))[:11]
     return f"{d[:3]}.{d[3:6]}.{d[6:9]}-{d[9:]}" if len(d) == 11 else v or ""
@@ -680,9 +687,10 @@ def gerar_documentos_kit(kit: Kit) -> tuple[list[DocumentoKit], list[str]]:
             warnings.append(f"Erro inesperado ao gerar '{key}': {e}")
             continue
 
+        cliente_slug = slug_nome_cliente(kit.cliente.nome_completo or "")
         doc = DocumentoKit(kit=kit, tipo=key)
         doc.arquivo.save(
-            f"kit_{kit.id}_{key}.pdf",
+            f"{key}_{cliente_slug}.pdf",
             ContentFile(pdf_bytes),
             save=True,
         )
