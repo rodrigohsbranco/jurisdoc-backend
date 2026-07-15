@@ -131,6 +131,14 @@ class Cliente(models.Model):
         help_text='Array JSON de fotos da residência. Cada item: {path, name}',
     )
 
+    # Foto 3x4 do cliente — {path, name} ou None
+    foto_cliente = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text='Foto 3x4 do cliente: {path, name} ou None.',
+    )
+
     # Status (soft delete)
     is_active = models.BooleanField(default=True, db_index=True)
 

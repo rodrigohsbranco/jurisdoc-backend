@@ -1,5 +1,6 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 from permissoes.models import Permissao
@@ -101,7 +102,25 @@ class TokenObtainPairWithUserSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
-        data = super().validate(attrs)
+        try:
+            data = super().validate(attrs)
+        except AuthenticationFailed:
+            # O SimpleJWT usa a mesma mensagem genérica em inglês ("No active
+            # account found...") para senha errada, usuário inexistente E conta
+            # inativa. Aqui traduzimos e distinguimos conta inativa de
+            # credenciais inválidas, sem vazar se o usuário existe (só damos a
+            # dica de "inativa" quando a conta realmente existe e está inativa).
+            username = attrs.get(self.username_field, "")
+            user = User.objects.filter(username__iexact=username).first()
+            if user is not None and not user.is_active:
+                raise AuthenticationFailed(
+                    "Sua conta está inativa. Contate o administrador.",
+                    "inactive_account",
+                )
+            raise AuthenticationFailed(
+                "Usuário ou senha inválidos.",
+                "invalid_credentials",
+            )
         return {
             "accessToken": data["access"],
             "refreshToken": data["refresh"],
