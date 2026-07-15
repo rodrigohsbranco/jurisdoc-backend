@@ -75,6 +75,94 @@ class ClienteAppViewSet(viewsets.ModelViewSet):
     # Busca por CPF com resumo de kits
     # ------------------------------------------------------------------
 
+    @decorators.action(detail=False, methods=["get"], url_path="condicao-campos")
+    def condicao_campos(self, request):
+        """
+        Retorna o mapeamento de campos adicionais por condição do cliente.
+
+        GET /api/app/clientes/condicao-campos/
+
+        Use para construir a UX do formulário de cadastro: quando o usuário
+        selecionar uma condição, exiba apenas os grupos de campos indicados.
+        """
+        return response.Response({
+            "condicoes": [
+                {
+                    "value": "alfabetizado",
+                    "label": "Alfabetizado",
+                    "grupos_adicionais": [],
+                },
+                {
+                    "value": "analfabeto",
+                    "label": "Analfabeto",
+                    "grupos_adicionais": [
+                        {
+                            "grupo": "rogado",
+                            "label": "Assinante a Rogo",
+                            "descricao": "Pessoa que assina o documento em nome do cliente analfabeto",
+                            "campos": [
+                                {"campo": "rogado_nome", "label": "Nome completo", "tipo": "string", "obrigatorio": True},
+                                {"campo": "rogado_cpf", "label": "CPF", "tipo": "cpf", "obrigatorio": True},
+                                {"campo": "rogado_documentos", "label": "Documentos (RG/CNH)", "tipo": "arquivos", "obrigatorio": False},
+                            ],
+                        },
+                        {
+                            "grupo": "testemunha1",
+                            "label": "Testemunha 1",
+                            "descricao": "Primeira testemunha presencial da assinatura",
+                            "campos": [
+                                {"campo": "testemunha1_nome", "label": "Nome completo", "tipo": "string", "obrigatorio": True},
+                                {"campo": "testemunha1_cpf", "label": "CPF", "tipo": "cpf", "obrigatorio": True},
+                                {"campo": "testemunha1_documentos", "label": "Documentos (RG/CNH)", "tipo": "arquivos", "obrigatorio": False},
+                            ],
+                        },
+                        {
+                            "grupo": "testemunha2",
+                            "label": "Testemunha 2",
+                            "descricao": "Segunda testemunha presencial da assinatura",
+                            "campos": [
+                                {"campo": "testemunha2_nome", "label": "Nome completo", "tipo": "string", "obrigatorio": True},
+                                {"campo": "testemunha2_cpf", "label": "CPF", "tipo": "cpf", "obrigatorio": True},
+                                {"campo": "testemunha2_documentos", "label": "Documentos (RG/CNH)", "tipo": "arquivos", "obrigatorio": False},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "value": "incapaz",
+                    "label": "Incapaz",
+                    "grupos_adicionais": [
+                        {
+                            "grupo": "responsavel_legal",
+                            "label": "Responsável Legal",
+                            "descricao": "Responsável legal pelo cliente incapaz",
+                            "campos": [
+                                {"campo": "responsavel_legal_nome", "label": "Nome completo", "tipo": "string", "obrigatorio": True},
+                                {"campo": "responsavel_legal_cpf", "label": "CPF", "tipo": "cpf", "obrigatorio": True},
+                                {"campo": "responsavel_legal_documentos", "label": "Documentos (RG/CNH)", "tipo": "arquivos", "obrigatorio": False},
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "value": "crianca_adolescente",
+                    "label": "Criança/Adolescente",
+                    "grupos_adicionais": [
+                        {
+                            "grupo": "responsavel_legal",
+                            "label": "Responsável Legal",
+                            "descricao": "Responsável legal pela criança ou adolescente",
+                            "campos": [
+                                {"campo": "responsavel_legal_nome", "label": "Nome completo", "tipo": "string", "obrigatorio": True},
+                                {"campo": "responsavel_legal_cpf", "label": "CPF", "tipo": "cpf", "obrigatorio": True},
+                                {"campo": "responsavel_legal_documentos", "label": "Documentos (RG/CNH)", "tipo": "arquivos", "obrigatorio": False},
+                            ],
+                        },
+                    ],
+                },
+            ]
+        })
+
     @decorators.action(detail=False, methods=["get"], url_path="buscar-por-cpf")
     def buscar_por_cpf(self, request):
         """

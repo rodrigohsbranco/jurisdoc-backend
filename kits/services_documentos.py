@@ -622,6 +622,13 @@ def gerar_documentos_kit(kit: Kit) -> tuple[list[DocumentoKit], list[str]]:
     if DocxTemplate is None:
         raise RuntimeError("docxtpl não instalado no servidor.")
 
+    # Validação de pré-condições por tipo de kit
+    if kit.tipo == "previdenciario" and not kit.cliente.data_nascimento:
+        raise RuntimeError(
+            "Kits previdenciários exigem a data de nascimento do cliente preenchida. "
+            "Cadastre a data de nascimento antes de gerar os documentos."
+        )
+
     templates = find_kit_templates(kit.tipo)
     if not templates:
         raise RuntimeError(
