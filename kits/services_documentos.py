@@ -575,9 +575,8 @@ def _compose_docx_files(docx_bytes_list: list[bytes]) -> bytes:
     return buf.getvalue()
 
 
-def _docx_to_pdf(docx_bytes: bytes) -> bytes:
-    docx_bytes = flatten_inherited_formatting(docx_bytes)
-
+def _run_libreoffice(docx_bytes: bytes) -> bytes:
+    """Converte .docx → PDF via LibreOffice headless. Não altera o .docx."""
     with tempfile.TemporaryDirectory() as tmpdir:
         input_path = Path(tmpdir) / "input.docx"
         input_path.write_bytes(docx_bytes)
@@ -612,6 +611,30 @@ def _docx_to_pdf(docx_bytes: bytes) -> bytes:
                 f"Falha na conversão para PDF (exit={result.returncode}): {detail[:500]}"
             )
         return pdf_path.read_bytes()
+
+
+def _docx_to_pdf(docx_bytes: bytes) -> bytes:
+    """Converte .docx → PDF com numeração de páginas condicional.
+
+    Injeta 'Página X de Y' no rodapé somente quando o documento tem mais de
+    uma página — mesma estratégia de _convert_with_conditional_page_numbering
+    em templates_app/views.py. Documentos de página única não recebem numeração.
+    """
+    from pypdf import PdfReader
+    from templates_app.docx_page_numbering import add_page_numbering_simple
+
+    docx_bytes = flatten_inherited_formatting(docx_bytes)
+    pdf_bytes = _run_libreoffice(docx_bytes)
+
+    try:
+        page_count = len(PdfReader(BytesIO(pdf_bytes)).pages)
+    except Exception:
+        return pdf_bytes
+
+    if page_count <= 1:
+        return pdf_bytes
+
+    return _run_libreoffice(add_page_numbering_simple(docx_bytes))
 
 
 # ---------------------------------------------------------------------------
