@@ -1,6 +1,10 @@
+import os
 import re
+from io import BytesIO
 
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from PIL import Image, ImageOps
 
 from rest_framework import viewsets, filters, decorators, response, status
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -384,6 +388,89 @@ class ClienteAppViewSet(viewsets.ModelViewSet):
         instance.comprovantes_residencia = new_docs
         instance.save(update_fields=["comprovantes_residencia"])
         return response.Response({"comprovantes_residencia": _docs_with_urls(new_docs, request)})
+
+    # ------------------------------------------------------------------
+    # Foto do cliente (única, comprimida via Pillow)
+    # ------------------------------------------------------------------
+
+    _FOTO_CLIENTE_MIME = {"image/jpeg", "image/png", "image/webp"}
+
+    @staticmethod
+    def _comprimir_imagem(f):
+        """Redimensiona (máx 1920px) e recomprime como JPEG, removendo metadados/EXIF."""
+        img = Image.open(f)
+        img = ImageOps.exif_transpose(img)
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        img.thumbnail((1920, 1920))
+        buffer = BytesIO()
+        img.save(buffer, format="JPEG", quality=82, optimize=True)
+        buffer.seek(0)
+        base = os.path.splitext(os.path.basename(f.name))[0]
+        return ContentFile(buffer.read()), f"{base}.jpg"
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="foto-cliente/upload",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_foto_cliente(self, request, pk=None):
+        """
+        Upload da foto do cliente (campo 'file', MIME jpg/png/webp).
+        Substitui a foto anterior automaticamente — só existe uma por cliente.
+        POST /api/app/clientes/{id}/foto-cliente/upload/
+        """
+        instance = self.get_object()
+        f = request.FILES.get("file")
+        if not f:
+            return response.Response(
+                {"detail": "Nenhum arquivo enviado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if f.content_type not in self._FOTO_CLIENTE_MIME:
+            return response.Response(
+                {"detail": f"Formato não suportado: {f.name}. Use JPG, PNG ou WEBP."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            content, nome = self._comprimir_imagem(f)
+        except Exception:
+            return response.Response(
+                {"detail": f"Imagem inválida ou corrompida: {f.name}."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        anterior = instance.foto_cliente or {}
+        if anterior.get("path") and default_storage.exists(anterior["path"]):
+            default_storage.delete(anterior["path"])
+
+        path = default_storage.save(
+            f"clientes/foto_cliente/{instance.pk}/{nome}", content
+        )
+        instance.foto_cliente = {"path": path, "name": nome}
+        instance.save(update_fields=["foto_cliente"])
+
+        result = _docs_with_urls([instance.foto_cliente], request)[0]
+        return response.Response({"foto_cliente": result}, status=status.HTTP_200_OK)
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="foto-cliente/remove",
+    )
+    def remove_foto_cliente(self, request, pk=None):
+        """
+        Remove a foto do cliente.
+        POST /api/app/clientes/{id}/foto-cliente/remove/
+        """
+        instance = self.get_object()
+        anterior = instance.foto_cliente or {}
+        if anterior.get("path") and default_storage.exists(anterior["path"]):
+            default_storage.delete(anterior["path"])
+        instance.foto_cliente = None
+        instance.save(update_fields=["foto_cliente"])
+        return response.Response({"foto_cliente": None}, status=status.HTTP_200_OK)
 
     # ------------------------------------------------------------------
     # Documentos do responsável pelo imóvel
