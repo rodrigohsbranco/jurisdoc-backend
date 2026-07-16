@@ -648,7 +648,10 @@ def gerar_documentos_kit(kit: Kit) -> tuple[list[DocumentoKit], list[str]]:
     include_domicilio = kit.cliente.comprovante_nome_cliente == "nao"
     valid_tipos = {v for v, _ in DocumentoKit.TIPO_CHOICES}
 
-    # Remove documentos anteriores
+    # Remove documentos anteriores — apaga os arquivos físicos antes dos registros,
+    # senão o Django adiciona sufixo aleatório ao salvar um arquivo com mesmo nome.
+    for _doc in kit.documentos.all():
+        _doc.arquivo.delete(save=False)
     kit.documentos.all().delete()
 
     created: list[DocumentoKit] = []
@@ -690,7 +693,7 @@ def gerar_documentos_kit(kit: Kit) -> tuple[list[DocumentoKit], list[str]]:
         cliente_slug = slug_nome_cliente(kit.cliente.nome_completo or "")
         doc = DocumentoKit(kit=kit, tipo=key)
         doc.arquivo.save(
-            f"{key}_{cliente_slug}.pdf",
+            f"kits/{kit.id}/{key}_{cliente_slug}.pdf",
             ContentFile(pdf_bytes),
             save=True,
         )

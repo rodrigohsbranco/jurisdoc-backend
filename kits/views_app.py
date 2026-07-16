@@ -308,7 +308,7 @@ class KitAppViewSet(viewsets.ModelViewSet):
         Mescla todos os PDFs do kit em um único arquivo e retorna para download.
 
         GET /api/app/kits/{id}/documentos/unificado/
-        Response: application/pdf — Content-Disposition: attachment; filename="kit_{id}_completo.pdf"
+        Response: application/pdf — Content-Disposition: attachment; filename="kit_completo_{NOME_CLIENTE}.pdf"
         """
         from io import BytesIO
         from django.http import HttpResponse
