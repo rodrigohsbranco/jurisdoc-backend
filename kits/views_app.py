@@ -11,8 +11,12 @@ from django_filters.rest_framework import DjangoFilterBackend
 
 from accounts.service_auth import IsServiceAdmin, ServiceClientAuthentication
 from .models import AcaoKit, Kit, resolver_clausula_porcentagem
-from .serializers import AcaoKitSerializer
-from .serializers_app import KitAppCreateSerializer, KitAppDetailSerializer, KitAppListSerializer
+from .serializers_app import (
+    AcaoKitAppSerializer,
+    KitAppCreateSerializer,
+    KitAppDetailSerializer,
+    KitAppListSerializer,
+)
 from .services_documentos import KIT_TEMPLATE_DEFS, TIPOS_COM_CONTRATO, slug_nome_cliente
 
 
@@ -275,6 +279,106 @@ class KitAppViewSet(viewsets.ModelViewSet):
                 ],
             })
 
+        # Campos visíveis/obrigatórios por tipo de ação — espelha exatamente o NovoKitView.vue
+        # Chave "por_tipo_kit": sobrescreve as regras base para tipos de kit específicos.
+        _CAMPOS_TIPOS_ACAO = {
+            # RMC / RCC / Empréstimo não autorizado / Cartão de crédito consignado
+            # → banco + numero_contrato + anexos historico_emprestimo / historico_credito
+            "cartao_credito_consignado": {
+                "nome_banco": {"visivel": True, "obrigatorio": True},
+                "banco_outro": {"visivel": True, "obrigatorio": False, "condicao": "nome_banco == 'Outro'"},
+                "numero_contrato": {"visivel": True, "obrigatorio": True},
+                "tarifa_questionada": {"visivel": False},
+                "tarifa_questionada_outro": {"visivel": False},
+                "tipo_seguro": {"visivel": False},
+                "tipo_contribuicao": {"visivel": False},
+                "associacao": {"visivel": False},
+                "anexos": ["historico_emprestimo", "historico_credito"],
+            },
+            "rmc": {
+                "nome_banco": {"visivel": True, "obrigatorio": True},
+                "banco_outro": {"visivel": True, "obrigatorio": False, "condicao": "nome_banco == 'Outro'"},
+                "numero_contrato": {"visivel": True, "obrigatorio": True},
+                "tarifa_questionada": {"visivel": False},
+                "tarifa_questionada_outro": {"visivel": False},
+                "tipo_seguro": {"visivel": False},
+                "tipo_contribuicao": {"visivel": False},
+                "associacao": {"visivel": False},
+                "anexos": ["historico_emprestimo", "historico_credito"],
+            },
+            "rcc": {
+                "nome_banco": {"visivel": True, "obrigatorio": True},
+                "banco_outro": {"visivel": True, "obrigatorio": False, "condicao": "nome_banco == 'Outro'"},
+                "numero_contrato": {"visivel": True, "obrigatorio": True},
+                "tarifa_questionada": {"visivel": False},
+                "tarifa_questionada_outro": {"visivel": False},
+                "tipo_seguro": {"visivel": False},
+                "tipo_contribuicao": {"visivel": False},
+                "associacao": {"visivel": False},
+                "anexos": ["historico_emprestimo", "historico_credito"],
+            },
+            "emprestimo_nao_autorizado": {
+                "nome_banco": {"visivel": True, "obrigatorio": True},
+                "banco_outro": {"visivel": True, "obrigatorio": False, "condicao": "nome_banco == 'Outro'"},
+                "numero_contrato": {"visivel": True, "obrigatorio": True},
+                "tarifa_questionada": {"visivel": False},
+                "tarifa_questionada_outro": {"visivel": False},
+                "tipo_seguro": {"visivel": False},
+                "tipo_contribuicao": {"visivel": False},
+                "associacao": {"visivel": False},
+                "anexos": ["historico_emprestimo", "historico_credito"],
+            },
+            # Tarifa Bancária → banco + tarifa_questionada (dropdown) + extrato_bancario
+            "tarifa_bancaria": {
+                "nome_banco": {"visivel": True, "obrigatorio": True},
+                "banco_outro": {"visivel": True, "obrigatorio": False, "condicao": "nome_banco == 'Outro'"},
+                "numero_contrato": {"visivel": False},
+                "tarifa_questionada": {"visivel": True, "obrigatorio": True},
+                "tarifa_questionada_outro": {
+                    "visivel": True,
+                    "obrigatorio": True,
+                    "condicao": "tarifa_questionada == 'OUTROS'",
+                },
+                "tipo_seguro": {"visivel": False},
+                "tipo_contribuicao": {"visivel": False},
+                "associacao": {"visivel": False},
+                "anexos": ["extrato_bancario"],
+            },
+            # Seguro Não Autorizado → banco + tipo_seguro (texto livre obrigatório)
+            "seguro_nao_autorizado": {
+                "nome_banco": {"visivel": True, "obrigatorio": True},
+                "banco_outro": {"visivel": True, "obrigatorio": False, "condicao": "nome_banco == 'Outro'"},
+                "numero_contrato": {"visivel": False},
+                "tarifa_questionada": {"visivel": False},
+                "tarifa_questionada_outro": {"visivel": False},
+                "tipo_seguro": {"visivel": True, "obrigatorio": True},
+                "tipo_contribuicao": {"visivel": False},
+                "associacao": {"visivel": False},
+                "anexos": [],
+            },
+            # Contribuição Sindical → difere por tipo de kit (ver por_tipo_kit)
+            "contribuicao_sindical_nao_autorizada": {
+                "nome_banco": {"visivel": False},
+                "banco_outro": {"visivel": False},
+                "numero_contrato": {"visivel": False},
+                "tarifa_questionada": {"visivel": False},
+                "tarifa_questionada_outro": {"visivel": False},
+                "tipo_seguro": {"visivel": False},
+                "tipo_contribuicao": {"visivel": False},
+                "associacao": {"visivel": False},
+                "anexos": [],
+                # Sobrescritas por tipo de kit:
+                "por_tipo_kit": {
+                    "bancario": {
+                        "associacao": {"visivel": True, "obrigatorio": False},
+                    },
+                    "marketing": {
+                        "tipo_contribuicao": {"visivel": True, "obrigatorio": True},
+                    },
+                },
+            },
+        }
+
         return Response({
             "tipos_kit": tipos_kit,
             "tipos_acao": [
@@ -285,6 +389,7 @@ class KitAppViewSet(viewsets.ModelViewSet):
                 }
                 for v, l in AcaoKit.TIPO_ACAO_CHOICES
             ],
+            "campos_por_tipo_acao": _CAMPOS_TIPOS_ACAO,
             "status_choices": [
                 {"value": v, "label": l} for v, l in Kit.STATUS_CHOICES
             ],
@@ -308,7 +413,7 @@ class KitAppViewSet(viewsets.ModelViewSet):
         Mescla todos os PDFs do kit em um único arquivo e retorna para download.
 
         GET /api/app/kits/{id}/documentos/unificado/
-        Response: application/pdf — Content-Disposition: attachment; filename="kit_completo_{NOME_CLIENTE}.pdf"
+        Response: application/pdf — Content-Disposition: attachment; filename="kit_completo_NOME_CLIENTE.pdf"
         """
         from io import BytesIO
         from django.http import HttpResponse
@@ -394,7 +499,7 @@ class KitAppViewSet(viewsets.ModelViewSet):
 class AcaoKitAppViewSet(viewsets.ModelViewSet):
     authentication_classes = [ServiceClientAuthentication]
     permission_classes = [IsServiceAdmin]
-    serializer_class = AcaoKitSerializer
+    serializer_class = AcaoKitAppSerializer
     parser_classes = [JSONParser, MultiPartParser, FormParser]
 
     DOCS_FIELD_MAP = {

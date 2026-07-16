@@ -7,6 +7,86 @@ from .models import DocumentoKit, Kit
 from .serializers import AcaoKitSerializer
 from .services_documentos import KIT_TEMPLATE_DEFS
 
+# Tipos que exigem numero_contrato (idêntico à constante do frontend TIPOS_COM_CONTRATO)
+_TIPOS_COM_CONTRATO = {
+    "cartao_credito_consignado",
+    "rmc",
+    "rcc",
+    "emprestimo_nao_autorizado",
+}
+
+
+class AcaoKitAppSerializer(AcaoKitSerializer):
+    """Estende AcaoKitSerializer com validações server-side para a API do app.
+
+    O JurisDoc interno delega essas validações ao frontend; no app precisamos
+    garantir consistência independentemente do cliente que faz a requisição.
+    Não altera nada do fluxo do JurisDoc interno.
+    """
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)  # roda validações do serializer base
+
+        tipo_acao = attrs.get("tipo_acao") or (
+            getattr(self.instance, "tipo_acao", "") if self.instance else ""
+        )
+
+        # numero_contrato obrigatório para RMC, RCC, Empréstimo não autorizado, Cartão Crédito
+        if tipo_acao in _TIPOS_COM_CONTRATO:
+            val = str(
+                attrs.get("numero_contrato")
+                or (getattr(self.instance, "numero_contrato", None) if self.instance else None)
+                or ""
+            ).strip()
+            if not val:
+                raise serializers.ValidationError(
+                    {"numero_contrato": "Campo obrigatório para este tipo de ação."}
+                )
+
+        # tarifa_questionada obrigatória para Tarifa Bancária
+        if tipo_acao == "tarifa_bancaria":
+            val = str(
+                attrs.get("tarifa_questionada")
+                or (getattr(self.instance, "tarifa_questionada", None) if self.instance else None)
+                or ""
+            ).strip()
+            if not val:
+                raise serializers.ValidationError(
+                    {"tarifa_questionada": "Campo obrigatório para Tarifa Bancária."}
+                )
+
+        # tipo_seguro obrigatório para Seguro Não Autorizado
+        if tipo_acao == "seguro_nao_autorizado":
+            val = str(
+                attrs.get("tipo_seguro")
+                or (getattr(self.instance, "tipo_seguro", None) if self.instance else None)
+                or ""
+            ).strip()
+            if not val:
+                raise serializers.ValidationError(
+                    {"tipo_seguro": "Campo obrigatório para Seguro Não Autorizado."}
+                )
+
+        # tipo_contribuicao obrigatório apenas para Contribuição Sindical em kit de marketing
+        if tipo_acao == "contribuicao_sindical_nao_autorizada":
+            view = self.context.get("view")
+            kit_pk = view.kwargs.get("kit_pk") if view else None
+            if kit_pk:
+                from .models import Kit as KitModel
+                kit_tipo = KitModel.objects.filter(pk=kit_pk).values_list("tipo", flat=True).first()
+                if kit_tipo == "marketing":
+                    val = str(
+                        attrs.get("tipo_contribuicao")
+                        or (getattr(self.instance, "tipo_contribuicao", None) if self.instance else None)
+                        or ""
+                    ).strip()
+                    if not val:
+                        raise serializers.ValidationError(
+                            {"tipo_contribuicao": "Campo obrigatório para Contribuição Sindical em kit de marketing."}
+                        )
+
+        return attrs
+
 
 class AppDocumentoKitSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
