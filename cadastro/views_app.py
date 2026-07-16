@@ -390,10 +390,106 @@ class ClienteAppViewSet(viewsets.ModelViewSet):
         return response.Response({"comprovantes_residencia": _docs_with_urls(new_docs, request)})
 
     # ------------------------------------------------------------------
-    # Foto do cliente (única, comprimida via Pillow)
+    # Fotos da residência (múltiplas, máx 10, comprimidas via Pillow)
     # ------------------------------------------------------------------
 
-    _FOTO_CLIENTE_MIME = {"image/jpeg", "image/png", "image/webp"}
+    _FOTOS_RESIDENCIA_MAX = 10
+    _FOTO_MIME = {"image/jpeg", "image/png", "image/webp"}
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="fotos-residencia/upload",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def upload_fotos_residencia(self, request, pk=None):
+        """
+        Upload de fotos da residência (campo 'files', múltiplos arquivos).
+        Limite total: 10 fotos. MIME: jpg/png/webp. Comprime via Pillow.
+        POST /api/app/clientes/{id}/fotos-residencia/upload/
+        """
+        instance = self.get_object()
+        files = request.FILES.getlist("files")
+        if not files:
+            return response.Response(
+                {"detail": "Nenhum arquivo enviado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(instance.fotos_residencia or [])
+        if len(docs) + len(files) > self._FOTOS_RESIDENCIA_MAX:
+            return response.Response(
+                {"detail": f"Limite de {self._FOTOS_RESIDENCIA_MAX} fotos por residência."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for f in files:
+            if f.content_type not in self._FOTO_MIME:
+                return response.Response(
+                    {"detail": f"Formato não suportado: {f.name}. Use JPG, PNG ou WEBP."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        for f in files:
+            try:
+                content, nome = self._comprimir_imagem(f)
+            except Exception:
+                return response.Response(
+                    {"detail": f"Imagem inválida ou corrompida: {f.name}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            path = default_storage.save(
+                f"clientes/fotos_residencia/{instance.pk}/{nome}", content
+            )
+            docs.append({"path": path, "name": nome})
+
+        instance.fotos_residencia = docs
+        instance.save(update_fields=["fotos_residencia"])
+        return response.Response(
+            {"fotos_residencia": _docs_with_urls(docs, request)},
+            status=status.HTTP_200_OK,
+        )
+
+    @decorators.action(
+        detail=True,
+        methods=["post"],
+        url_path="fotos-residencia/remove",
+    )
+    def remove_foto_residencia(self, request, pk=None):
+        """
+        Remove uma foto da residência pelo path.
+        POST /api/app/clientes/{id}/fotos-residencia/remove/
+        Body: {"path": "clientes/fotos_residencia/123/foto.jpg"}
+        """
+        instance = self.get_object()
+        path_to_remove = request.data.get("path")
+        if not path_to_remove:
+            return response.Response(
+                {"detail": "Informe o campo 'path'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = list(instance.fotos_residencia or [])
+        new_docs = [d for d in docs if d.get("path") != path_to_remove]
+        if len(new_docs) == len(docs):
+            return response.Response(
+                {"detail": "Foto não encontrada."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if default_storage.exists(path_to_remove):
+            default_storage.delete(path_to_remove)
+
+        instance.fotos_residencia = new_docs
+        instance.save(update_fields=["fotos_residencia"])
+        return response.Response(
+            {"fotos_residencia": _docs_with_urls(new_docs, request)},
+            status=status.HTTP_200_OK,
+        )
+
+    # ------------------------------------------------------------------
+    # Foto do cliente (única, comprimida via Pillow)
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _comprimir_imagem(f):
@@ -428,7 +524,7 @@ class ClienteAppViewSet(viewsets.ModelViewSet):
                 {"detail": "Nenhum arquivo enviado."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        if f.content_type not in self._FOTO_CLIENTE_MIME:
+        if f.content_type not in self._FOTO_MIME:
             return response.Response(
                 {"detail": f"Formato não suportado: {f.name}. Use JPG, PNG ou WEBP."},
                 status=status.HTTP_400_BAD_REQUEST,
