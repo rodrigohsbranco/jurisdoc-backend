@@ -440,17 +440,44 @@ def _adv_notificacao(snapshot: list[dict]) -> dict:
     return snapshot[0]
 
 
-# Danos morais: valores fixos por regra (extenso hardcoded — só dois valores).
-_EXTENSO_DANOS = {
-    15000: "quinze mil reais",
-    5000: "cinco mil reais",
-}
-
-
 def _fmt_moeda(v: int) -> str:
     """15000 -> 'R$ 15.000,00'."""
     s = f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
     return f"R$ {s}"
+
+
+# Extenso (pt-BR) para os valores de danos morais — sempre múltiplos de mil.
+_EXT_U = ["", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito",
+          "nove", "dez", "onze", "doze", "treze", "quatorze", "quinze",
+          "dezesseis", "dezessete", "dezoito", "dezenove"]
+_EXT_D = ["", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta",
+          "setenta", "oitenta", "noventa"]
+_EXT_C = ["", "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos",
+          "seiscentos", "setecentos", "oitocentos", "novecentos"]
+
+
+def _extenso_ate_999(n: int) -> str:
+    if n == 0:
+        return ""
+    if n == 100:
+        return "cem"
+    partes = []
+    c, d = divmod(n, 100)
+    if c:
+        partes.append(_EXT_C[c])
+    if d:
+        if d < 20:
+            partes.append(_EXT_U[d])
+        else:
+            dez, uni = divmod(d, 10)
+            partes.append(f"{_EXT_D[dez]} e {_EXT_U[uni]}" if uni else _EXT_D[dez])
+    return " e ".join(partes)
+
+
+def _extenso_reais_mil(v: int) -> str:
+    """Extenso de valor múltiplo de mil: 25000 -> 'vinte e cinco mil reais'."""
+    milhares = v // 1000
+    return "mil reais" if milhares == 1 else f"{_extenso_ate_999(milhares)} mil reais"
 
 
 def _banco_acao(a) -> str:
@@ -458,40 +485,49 @@ def _banco_acao(a) -> str:
     return _normalize(a.banco_outro if a.nome_banco == "Outro" else a.nome_banco)
 
 
-def _valor_danos_morais(kit: Kit, acao) -> int:
-    """Valor dos danos morais da ação, em reais (0 se não se aplica).
+def _valor_danos_morais_doc(kit: Kit, acoes: list) -> int:
+    """Danos morais do DOCUMENTO, em reais (0 se não se aplica).
 
-    - RCC / RMC: sempre 15000.
-    - nao_contratado / tarifa_bancaria: por banco, DENTRO do mesmo tipo de ação
-      — banco repetido (2+ vezes) = 5000 cada; banco único = 15000.
+    - RCC / RMC: 15000.
+    - nao_contratado: o documento agrupa as ações do mesmo banco → 5000 × nº de
+      ações quando há mais de uma; senão 15000.
+    - tarifa_bancaria (um doc por ação): 5000 se o banco se repete entre as
+      ações de tarifa do kit; senão 15000.
     """
-    tipo = acao.tipo_acao
+    rep = acoes[0]
+    tipo = rep.tipo_acao
     if tipo in ("rcc", "rmc"):
         return 15000
-    if tipo in ("emprestimo_nao_autorizado", "tarifa_bancaria"):
-        alvo = _banco_acao(acao)
+    if tipo == "emprestimo_nao_autorizado":
+        return 5000 * len(acoes) if len(acoes) > 1 else 15000
+    if tipo == "tarifa_bancaria":
+        alvo = _banco_acao(rep)
         mesmo_tipo = [a for a in kit.acoes.all() if a.tipo_acao == tipo]
         repetido = sum(1 for a in mesmo_tipo if _banco_acao(a) == alvo) > 1
         return 5000 if repetido else 15000
     return 0
 
 
-def build_notificacao_context(kit: Kit, acao) -> dict:
-    """Contexto (placeholders {{MAIÚSCULO}}) do template de notificação, por ação.
+def build_notificacao_context(kit: Kit, acoes: list) -> dict:
+    """Contexto (placeholders {{MAIÚSCULO}}) do template de notificação, por documento.
+
+    `acoes` é a lista de ações que compõem UM documento: para nao_contratado do
+    mesmo banco, várias ações (contratos) juntas; para os demais tipos, uma só.
 
     Origens (definidas com o operador):
       - Cliente: dados pessoais + endereço + assinatura (cidade/UF do cliente)
       - Advogado: snapshot do kit
       - Banco: BancoKit (casado por nome_banco da ação)
-      - Empréstimo e danos morais: pendentes (deixados em branco por ora)
+      - NUMERO_CONTRATO: todos os contratos das ações do documento
     """
     from .models import BancoKit
 
     c = kit.cliente
     adv = _adv_notificacao(kit.advogados_snapshot or [])
     today = date.today()
+    rep = acoes[0]  # ação representativa (banco/tipo iguais no grupo)
 
-    nome_banco = acao.banco_outro if acao.nome_banco == "Outro" else acao.nome_banco
+    nome_banco = rep.banco_outro if rep.nome_banco == "Outro" else rep.nome_banco
     banco = BancoKit.objects.filter(nome=nome_banco).first() if nome_banco else None
 
     partes_end = [c.logradouro or ""]
@@ -502,10 +538,11 @@ def build_notificacao_context(kit: Kit, acao) -> dict:
     endereco_cliente = ", ".join(p for p in partes_end if p).strip(", ")
 
     nome_adv = adv.get("nome_completo", "")
-    _danos = _valor_danos_morais(kit, acao)
+    _danos = _valor_danos_morais_doc(kit, acoes)
+    numeros = ", ".join(a.numero_contrato for a in acoes if a.numero_contrato)
 
     return {
-        "tipo_notificacao": TIPO_ACAO_NOTIFICACAO.get(acao.tipo_acao, ""),
+        "tipo_notificacao": TIPO_ACAO_NOTIFICACAO.get(rep.tipo_acao, ""),
         # Cliente
         "NOME_CLIENTE": c.nome_completo or "",
         "CPF": _fmt_cpf(c.cpf or ""),
@@ -537,17 +574,17 @@ def build_notificacao_context(kit: Kit, acao) -> dict:
         "CEP_BANCO": "",
         "CIDADE_BANCO": "",
         "UF_BANCO": "",
-        # Ação
-        "NUMERO_CONTRATO": acao.numero_contrato or "",
+        # Ação (todos os contratos do documento)
+        "NUMERO_CONTRATO": numeros,
         # Empréstimo — pendente (a definir)
         "VALOR_EMPRESTIMO": "",
         "QTD_PARCELAS": "",
         "VALOR_PARCELA": "",
         "DATA_INCLUSAO": "",
         "DATA_INICIO_DESCONTOS": "",
-        # Danos morais (regra por tipo/banco)
+        # Danos morais (regra por documento — soma no nao_contratado agrupado)
         "VALOR_DANOS_MORAIS": _fmt_moeda(_danos) if _danos else "",
-        "VALOR_DANOS_MORAIS_EXTENSO": _EXTENSO_DANOS.get(_danos, ""),
+        "VALOR_DANOS_MORAIS_EXTENSO": _extenso_reais_mil(_danos) if _danos else "",
     }
 
 
@@ -572,16 +609,44 @@ def _merge_pdfs(pdf_list: list[bytes]) -> bytes:
     return out.getvalue()
 
 
-def notificacao_acoes(kit: Kit) -> list:
-    """Ações do kit que têm tipo de notificação mapeado (uma notificação cada)."""
-    return [a for a in kit.acoes.all() if TIPO_ACAO_NOTIFICACAO.get(a.tipo_acao)]
+def notificacao_documentos(kit: Kit) -> list[dict]:
+    """Lista os DOCUMENTOS de notificação do kit.
+
+    Cada item: {"rep_id": <id da 1ª ação>, "tipo_acao", "banco", "acoes": [...]}.
+    - emprestimo_nao_autorizado: ações do MESMO banco viram um único documento
+      (todos os contratos juntos).
+    - demais tipos mapeados: um documento por ação.
+    """
+    mapeadas = [a for a in kit.acoes.all() if TIPO_ACAO_NOTIFICACAO.get(a.tipo_acao)]
+
+    docs: list[dict] = []
+    grupos_nc: dict[str, list] = {}
+    for a in mapeadas:
+        banco_label = (a.banco_outro if a.nome_banco == "Outro" else a.nome_banco) or ""
+        if a.tipo_acao == "emprestimo_nao_autorizado":
+            grupos_nc.setdefault(_banco_acao(a), []).append(a)
+        else:
+            docs.append({
+                "rep_id": a.id, "tipo_acao": a.tipo_acao,
+                "banco": banco_label, "acoes": [a],
+            })
+    for lst in grupos_nc.values():
+        rep = lst[0]
+        banco_label = (rep.banco_outro if rep.nome_banco == "Outro" else rep.nome_banco) or ""
+        docs.append({
+            "rep_id": rep.id, "tipo_acao": rep.tipo_acao,
+            "banco": banco_label, "acoes": lst,
+        })
+    docs.sort(key=lambda d: d["rep_id"])
+    return docs
 
 
 def gerar_notificacao_pdf(kit: Kit, acao=None) -> bytes:
     """Gera o PDF da notificação extrajudicial.
 
-    - acao=None: uma notificação por ação mapeada, combinadas num PDF único.
-    - acao=<AcaoKit>: só a notificação daquela ação.
+    - acao=None: todos os documentos do kit, combinados num PDF único.
+    - acao=<AcaoKit>: só o documento que contém essa ação (nao_contratado do
+      mesmo banco é um documento só).
 
     Levanta FileNotFoundError se o template não existir e ValueError se não
     houver ação com tipo de notificação mapeado.
@@ -591,17 +656,16 @@ def gerar_notificacao_pdf(kit: Kit, acao=None) -> bytes:
         raise FileNotFoundError(
             "Template 'template_notificacao_extrajudicial' não encontrado ou inativo."
         )
+    docs = notificacao_documentos(kit)
     if acao is not None:
-        acoes = [acao] if TIPO_ACAO_NOTIFICACAO.get(acao.tipo_acao) else []
-    else:
-        acoes = notificacao_acoes(kit)
-    if not acoes:
+        docs = [d for d in docs if any(a.id == acao.id for a in d["acoes"])]
+    if not docs:
         raise ValueError(
             "Nenhuma ação deste kit tem tipo de notificação definido ainda."
         )
     pdfs = []
-    for a in acoes:
-        ctx = build_notificacao_context(kit, a)
+    for d in docs:
+        ctx = build_notificacao_context(kit, d["acoes"])
         docx_bytes = _render_template_to_docx(tpl, ctx)
         pdfs.append(_docx_to_pdf(docx_bytes))
     return pdfs[0] if len(pdfs) == 1 else _merge_pdfs(pdfs)

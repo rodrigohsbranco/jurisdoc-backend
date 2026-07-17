@@ -265,18 +265,19 @@ class KitViewSet(viewsets.ModelViewSet):
         """Lista as notificações extrajudiciais do kit — uma por ação com tipo
         mapeado (cada uma vira uma aba no drawer)."""
         kit = self.get_object()
-        from .services_documentos import notificacao_acoes, TIPO_ACAO_NOTIFICACAO
-        docs = []
-        for a in notificacao_acoes(kit):
-            banco = a.banco_outro if a.nome_banco == "Outro" else a.nome_banco
-            docs.append({
-                "acao_id": a.id,
-                "tipo_acao": a.tipo_acao,
-                "tipo_acao_display": a.get_tipo_acao_display(),
-                "banco": banco or "",
-                "tipo_notificacao": TIPO_ACAO_NOTIFICACAO.get(a.tipo_acao, ""),
+        from .services_documentos import notificacao_documentos, TIPO_ACAO_NOTIFICACAO
+        out = []
+        for d in notificacao_documentos(kit):
+            rep = d["acoes"][0]
+            out.append({
+                "acao_id": d["rep_id"],  # id representativo (usado no ?acao_id=)
+                "tipo_acao": d["tipo_acao"],
+                "tipo_acao_display": rep.get_tipo_acao_display(),
+                "banco": d["banco"],
+                "qtd_contratos": len(d["acoes"]),
+                "tipo_notificacao": TIPO_ACAO_NOTIFICACAO.get(d["tipo_acao"], ""),
             })
-        return Response({"notificacoes": docs})
+        return Response({"notificacoes": out})
 
     @action(detail=True, methods=["post"], url_path="notificacao-enviada")
     def marcar_notificacao(self, request, pk=None):
