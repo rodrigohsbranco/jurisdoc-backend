@@ -240,16 +240,29 @@ class KitViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="enviar-para-assinatura")
     def enviar_para_assinatura(self, request, pk=None):
-        """Envia o kit ao ZapSign para assinatura eletrônica.
+        """Envia cada documento do kit ao ZapSign como documento separado.
 
-        Retorna {"sign_url": str, "status": str} — o link que o usuário deve compartilhar.
-        Auto-finaliza o kit se ainda não estiver finalizado (com as mesmas validações de /finalizar/).
-        Se o kit já foi enviado e o status ainda está pendente, reutiliza o sign_url existente.
-        Gera os DocumentoKit server-side se ainda não existirem (JurisDoc frontend usa blobs no browser).
+        Body (opcional):
+          nivel: "basico" | "medio" | "avancado"  (padrão: "basico")
+          medio_tipo: "email" | "sms"              (padrão: "email", usado quando nivel=="medio")
+          rubrica: bool                            (padrão: false)
+
+        Retorna:
+          {
+            "status": str,
+            "documentos": [{"tipo": str, "tipo_display": str, "sign_url": str}]
+          }
+
+        Auto-finaliza o kit se necessário. Gera DocumentoKit server-side se ainda não existirem.
         """
         from .services_zapsign import enviar_para_assinatura as _enviar
 
         kit = self.get_object()
+        config = {
+            "nivel": request.data.get("nivel", "basico"),
+            "medio_tipo": request.data.get("medio_tipo", "email"),
+            "rubrica": bool(request.data.get("rubrica", False)),
+        }
 
         if kit.status == "assinado":
             return Response(
@@ -267,9 +280,20 @@ class KitViewSet(viewsets.ModelViewSet):
             kit.status = "finalizado"
             kit.save(update_fields=["status", "atualizado_em"])
 
-        # Reutiliza sign_url se já foi enviado e ainda está pendente
-        if kit.zapsign_sign_url and kit.zapsign_status == "pending":
-            return Response({"sign_url": kit.zapsign_sign_url, "status": kit.status, "reutilizado": True})
+        # Se já existem documentos com links pendentes, retorna os links existentes
+        docs_pendentes = kit.documentos.filter(zapsign_status="pending").exclude(tipo="assinado_zapsign")
+        if docs_pendentes.exists():
+            documentos = [
+                {
+                    "tipo": d.tipo,
+                    "tipo_display": d.get_tipo_display(),
+                    "sign_url": d.zapsign_sign_url,
+                }
+                for d in docs_pendentes
+                if d.zapsign_sign_url
+            ]
+            if documentos:
+                return Response({"status": kit.status, "documentos": documentos, "reutilizado": True})
 
         # JurisDoc frontend não salva DocumentoKit — gera server-side se necessário
         if not kit.documentos.exclude(tipo="assinado_zapsign").exists():
@@ -288,11 +312,15 @@ class KitViewSet(viewsets.ModelViewSet):
                 )
 
         try:
-            result = _enviar(kit)
+            results = _enviar(kit, config)
         except RuntimeError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({"sign_url": result["sign_url"], "status": kit.status, "reutilizado": False})
+        documentos = [
+            {"tipo": r["tipo"], "tipo_display": r["tipo_display"], "sign_url": r["sign_url"]}
+            for r in results
+        ]
+        return Response({"status": kit.status, "documentos": documentos, "reutilizado": False})
 
     @action(detail=False, methods=["get"])
     def stats(self, request):

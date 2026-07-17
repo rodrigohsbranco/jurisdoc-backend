@@ -148,6 +148,9 @@ class DocumentoKit(models.Model):
     tipo = models.CharField(max_length=20, choices=TIPO_CHOICES)
     arquivo = models.FileField(upload_to="kits/documentos/")
     gerado_em = models.DateTimeField(auto_now_add=True)
+    zapsign_doc_token = models.CharField(max_length=100, null=True, blank=True, db_index=True)
+    zapsign_sign_url = models.URLField(max_length=500, null=True, blank=True)
+    zapsign_status = models.CharField(max_length=20, null=True, blank=True)
 
     class Meta:
         verbose_name = "Documento do Kit"
