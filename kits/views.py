@@ -242,27 +242,34 @@ class KitViewSet(viewsets.ModelViewSet):
     def enviar_para_assinatura(self, request, pk=None):
         """Envia o kit ao ZapSign para assinatura eletrônica.
 
-        Retorna {"sign_url": str} — o link que o usuário deve compartilhar com o cliente.
-        Se o kit já foi enviado anteriormente e o status ainda está pendente, retorna
-        o sign_url existente sem criar um novo documento no ZapSign.
-
-        O JurisDoc frontend gera documentos como blobs no browser sem salvar em DocumentoKit.
-        Por isso, se não houver documentos no banco, gera-os server-side automaticamente
-        antes de enviar ao ZapSign (mesmo caminho que o app usa).
+        Retorna {"sign_url": str, "status": str} — o link que o usuário deve compartilhar.
+        Auto-finaliza o kit se ainda não estiver finalizado (com as mesmas validações de /finalizar/).
+        Se o kit já foi enviado e o status ainda está pendente, reutiliza o sign_url existente.
+        Gera os DocumentoKit server-side se ainda não existirem (JurisDoc frontend usa blobs no browser).
         """
         from .services_zapsign import enviar_para_assinatura as _enviar
 
         kit = self.get_object()
 
-        if kit.status != "finalizado":
+        if kit.status == "assinado":
             return Response(
-                {"detail": "Apenas kits finalizados podem ser enviados para assinatura."},
+                {"detail": "Este kit já foi assinado."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Auto-finaliza se ainda não estiver finalizado
+        if kit.status != "finalizado":
+            if kit.tipo != "previdenciario" and kit.acoes.count() == 0:
+                return Response(
+                    {"detail": "O kit precisa ter pelo menos uma ação antes de ser enviado para assinatura."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            kit.status = "finalizado"
+            kit.save(update_fields=["status", "atualizado_em"])
+
         # Reutiliza sign_url se já foi enviado e ainda está pendente
         if kit.zapsign_sign_url and kit.zapsign_status == "pending":
-            return Response({"sign_url": kit.zapsign_sign_url, "reutilizado": True})
+            return Response({"sign_url": kit.zapsign_sign_url, "status": kit.status, "reutilizado": True})
 
         # JurisDoc frontend não salva DocumentoKit — gera server-side se necessário
         if not kit.documentos.exclude(tipo="assinado_zapsign").exists():
@@ -285,7 +292,7 @@ class KitViewSet(viewsets.ModelViewSet):
         except RuntimeError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({"sign_url": result["sign_url"], "reutilizado": False})
+        return Response({"sign_url": result["sign_url"], "status": kit.status, "reutilizado": False})
 
     @action(detail=False, methods=["get"])
     def stats(self, request):
