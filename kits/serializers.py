@@ -229,16 +229,22 @@ class AcaoKitSerializer(serializers.ModelSerializer):
 
 
 class DocumentoKitSerializer(serializers.ModelSerializer):
+    tipo_display = serializers.CharField(source="get_tipo_display", read_only=True)
+
     class Meta:
         model = DocumentoKit
         fields = [
             "id",
             "kit",
             "tipo",
+            "tipo_display",
             "arquivo",
             "gerado_em",
+            "zapsign_doc_token",
+            "zapsign_sign_url",
+            "zapsign_status",
         ]
-        read_only_fields = ["id", "gerado_em"]
+        read_only_fields = ["id", "gerado_em", "zapsign_doc_token", "zapsign_sign_url", "zapsign_status"]
 
 
 class KitListSerializer(serializers.ModelSerializer):
@@ -286,10 +292,13 @@ class KitDetailSerializer(serializers.ModelSerializer):
             "status",
             "acoes",
             "documentos",
+            "zapsign_doc_token",
+            "zapsign_sign_url",
+            "zapsign_status",
             "criado_em",
             "atualizado_em",
         ]
-        read_only_fields = ["id", "criado_por", "criado_em", "atualizado_em"]
+        read_only_fields = ["id", "criado_por", "criado_em", "atualizado_em", "zapsign_doc_token", "zapsign_sign_url", "zapsign_status"]
 
 
 class KitCreateSerializer(serializers.ModelSerializer):

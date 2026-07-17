@@ -181,6 +181,9 @@ AUTH_USER_MODEL = "accounts.User"
 # Em produção defina APP_INTEGRATION_SECRET no .env com um valor aleatório longo.
 APP_INTEGRATION_SECRET = os.getenv("APP_INTEGRATION_SECRET", SECRET_KEY)
 
+# Token da API ZapSign (assinatura eletrônica). Defina ZAPSIGN_API_TOKEN no .env / EasyPanel.
+ZAPSIGN_API_TOKEN = os.getenv("ZAPSIGN_API_TOKEN", "")
+
 # Log de erros 500 no console (Gunicorn/EasyPanel) para ver traceback com DEBUG=0
 LOGGING = {
     "version": 1,
