@@ -199,5 +199,16 @@ LOGGING = {
             "level": "ERROR",
             "propagate": False,
         },
+        # Logs das integrações aparecem no EasyPanel (INFO e acima)
+        "kits": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "accounts": {
+            "handlers": ["console"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }
