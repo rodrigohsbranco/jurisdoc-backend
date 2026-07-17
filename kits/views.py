@@ -268,8 +268,8 @@ class KitViewSet(viewsets.ModelViewSet):
         if not kit.documentos.exclude(tipo="assinado_zapsign").exists():
             from .services_documentos import gerar_documentos_kit
             try:
-                resultado = gerar_documentos_kit(kit)
-                if not resultado.get("documentos"):
+                documentos_gerados, _ = gerar_documentos_kit(kit)
+                if not documentos_gerados:
                     return Response(
                         {"detail": "Não foi possível gerar os documentos. Verifique se os templates estão cadastrados corretamente."},
                         status=status.HTTP_400_BAD_REQUEST,
