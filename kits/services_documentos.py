@@ -415,6 +415,199 @@ def build_kit_context(kit: Kit) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Notificação extrajudicial (template_notificacao_extrajudicial)
+# ---------------------------------------------------------------------------
+
+# Mapa tipo_acao -> bloco {%p if tipo_notificacao == '...' %} do template.
+# TODO: definir os pendentes (cartao_credito_consignado,
+# contribuicao_sindical_nao_autorizada, seguro_nao_autorizado) e os blocos
+# ainda sem par (encargos, pagamento_eletronico, titulo_capitalizacao).
+TIPO_ACAO_NOTIFICACAO = {
+    "rmc": "rmc",
+    "rcc": "rcc",
+    "tarifa_bancaria": "tarifas",
+    "emprestimo_nao_autorizado": "nao_contratado",
+}
+
+
+def _adv_notificacao(snapshot: list[dict]) -> dict:
+    """Advogado que assina a notificação: OAB na UF do cliente, senão o 1º."""
+    if not snapshot:
+        return {}
+    for a in snapshot:
+        if a.get("oab_fonte") == "uf_cliente":
+            return a
+    return snapshot[0]
+
+
+# Danos morais: valores fixos por regra (extenso hardcoded — só dois valores).
+_EXTENSO_DANOS = {
+    15000: "quinze mil reais",
+    5000: "cinco mil reais",
+}
+
+
+def _fmt_moeda(v: int) -> str:
+    """15000 -> 'R$ 15.000,00'."""
+    s = f"{v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    return f"R$ {s}"
+
+
+def _banco_acao(a) -> str:
+    """Nome do banco da ação (normalizado), considerando 'Outro'."""
+    return _normalize(a.banco_outro if a.nome_banco == "Outro" else a.nome_banco)
+
+
+def _valor_danos_morais(kit: Kit, acao) -> int:
+    """Valor dos danos morais da ação, em reais (0 se não se aplica).
+
+    - RCC / RMC: sempre 15000.
+    - nao_contratado / tarifa_bancaria: por banco, DENTRO do mesmo tipo de ação
+      — banco repetido (2+ vezes) = 5000 cada; banco único = 15000.
+    """
+    tipo = acao.tipo_acao
+    if tipo in ("rcc", "rmc"):
+        return 15000
+    if tipo in ("emprestimo_nao_autorizado", "tarifa_bancaria"):
+        alvo = _banco_acao(acao)
+        mesmo_tipo = [a for a in kit.acoes.all() if a.tipo_acao == tipo]
+        repetido = sum(1 for a in mesmo_tipo if _banco_acao(a) == alvo) > 1
+        return 5000 if repetido else 15000
+    return 0
+
+
+def build_notificacao_context(kit: Kit, acao) -> dict:
+    """Contexto (placeholders {{MAIÚSCULO}}) do template de notificação, por ação.
+
+    Origens (definidas com o operador):
+      - Cliente: dados pessoais + endereço + assinatura (cidade/UF do cliente)
+      - Advogado: snapshot do kit
+      - Banco: BancoKit (casado por nome_banco da ação)
+      - Empréstimo e danos morais: pendentes (deixados em branco por ora)
+    """
+    from .models import BancoKit
+
+    c = kit.cliente
+    adv = _adv_notificacao(kit.advogados_snapshot or [])
+    today = date.today()
+
+    nome_banco = acao.banco_outro if acao.nome_banco == "Outro" else acao.nome_banco
+    banco = BancoKit.objects.filter(nome=nome_banco).first() if nome_banco else None
+
+    partes_end = [c.logradouro or ""]
+    if c.numero:
+        partes_end.append(f"nº {c.numero}")
+    if c.complemento:
+        partes_end.append(c.complemento)
+    endereco_cliente = ", ".join(p for p in partes_end if p).strip(", ")
+
+    nome_adv = adv.get("nome_completo", "")
+    _danos = _valor_danos_morais(kit, acao)
+
+    return {
+        "tipo_notificacao": TIPO_ACAO_NOTIFICACAO.get(acao.tipo_acao, ""),
+        # Cliente
+        "NOME_CLIENTE": c.nome_completo or "",
+        "CPF": _fmt_cpf(c.cpf or ""),
+        "RG": c.rg or "",
+        "ORGAO_EXPEDIDOR": c.orgao_expedidor or "",
+        "NACIONALIDADE": c.nacionalidade or "",
+        "ESTADO_CIVIL": c.estado_civil or "",
+        "PROFISSAO": c.profissao or "",
+        "ENDERECO_CLIENTE": endereco_cliente,
+        "BAIRRO": c.bairro or "",
+        "MUNICIPIO": c.cidade or "",
+        "CEP_CLIENTE": _fmt_cep(c.cep or ""),
+        "UF_CLIENTE": (c.uf or "").upper(),
+        # Assinatura = cidade/UF do cliente
+        "CIDADE_ASSINATURA": c.cidade or "",
+        "UF_ASSINATURA": (c.uf or "").upper(),
+        "DATA_EXTENSO": f"{today.day:02d} de {MESES[today.month - 1]} de {today.year}",
+        # Advogado (snapshot)
+        "NOME_ADVOGADO": nome_adv,
+        "NOME_ADVOGADO_MAIUSCULO": nome_adv.upper(),
+        "OAB_ADVOGADO": adv.get("numero_oab", ""),
+        "ENDERECO_ESCRITORIO": adv.get("escritorio_endereco", ""),
+        # Banco (BancoKit)
+        "NOME_BANCO": (banco.nome if banco else nome_banco) or "",
+        "NOME_BANCO_CONTRATO": (banco.nome if banco else nome_banco) or "",
+        "CNPJ_BANCO": banco.cnpj if banco else "",
+        "ENDERECO_BANCO_LINHA1": banco.endereco if banco else "",
+        "ENDERECO_BANCO_LINHA2": "",
+        "CEP_BANCO": "",
+        "CIDADE_BANCO": "",
+        "UF_BANCO": "",
+        # Ação
+        "NUMERO_CONTRATO": acao.numero_contrato or "",
+        # Empréstimo — pendente (a definir)
+        "VALOR_EMPRESTIMO": "",
+        "QTD_PARCELAS": "",
+        "VALOR_PARCELA": "",
+        "DATA_INCLUSAO": "",
+        "DATA_INICIO_DESCONTOS": "",
+        # Danos morais (regra por tipo/banco)
+        "VALOR_DANOS_MORAIS": _fmt_moeda(_danos) if _danos else "",
+        "VALOR_DANOS_MORAIS_EXTENSO": _EXTENSO_DANOS.get(_danos, ""),
+    }
+
+
+def _find_notificacao_template():
+    """Template ativo cujo nome contém 'notificacao extrajudicial'."""
+    for tpl in Template.objects.filter(active=True):
+        n = _normalize(tpl.name)
+        if all(w in n for w in ("notificacao", "extrajudicial")):
+            return tpl
+    return None
+
+
+def _merge_pdfs(pdf_list: list[bytes]) -> bytes:
+    """Concatena PDFs já renderizados (uma notificação por ação)."""
+    from pypdf import PdfReader, PdfWriter
+    writer = PdfWriter()
+    for pdf in pdf_list:
+        for page in PdfReader(BytesIO(pdf)).pages:
+            writer.add_page(page)
+    out = BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def notificacao_acoes(kit: Kit) -> list:
+    """Ações do kit que têm tipo de notificação mapeado (uma notificação cada)."""
+    return [a for a in kit.acoes.all() if TIPO_ACAO_NOTIFICACAO.get(a.tipo_acao)]
+
+
+def gerar_notificacao_pdf(kit: Kit, acao=None) -> bytes:
+    """Gera o PDF da notificação extrajudicial.
+
+    - acao=None: uma notificação por ação mapeada, combinadas num PDF único.
+    - acao=<AcaoKit>: só a notificação daquela ação.
+
+    Levanta FileNotFoundError se o template não existir e ValueError se não
+    houver ação com tipo de notificação mapeado.
+    """
+    tpl = _find_notificacao_template()
+    if tpl is None:
+        raise FileNotFoundError(
+            "Template 'template_notificacao_extrajudicial' não encontrado ou inativo."
+        )
+    if acao is not None:
+        acoes = [acao] if TIPO_ACAO_NOTIFICACAO.get(acao.tipo_acao) else []
+    else:
+        acoes = notificacao_acoes(kit)
+    if not acoes:
+        raise ValueError(
+            "Nenhuma ação deste kit tem tipo de notificação definido ainda."
+        )
+    pdfs = []
+    for a in acoes:
+        ctx = build_notificacao_context(kit, a)
+        docx_bytes = _render_template_to_docx(tpl, ctx)
+        pdfs.append(_docx_to_pdf(docx_bytes))
+    return pdfs[0] if len(pdfs) == 1 else _merge_pdfs(pdfs)
+
+
+# ---------------------------------------------------------------------------
 # Contexto por ação — procuração
 # ---------------------------------------------------------------------------
 
