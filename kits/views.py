@@ -64,6 +64,7 @@ class KitViewSet(viewsets.ModelViewSet):
             "assinar": "kits.editar",
             "mudar_status": "kits.editar",
             "stats": "kits.visualizar",
+            "enviar_para_assinatura": "kits.editar",
         })
         # Defesa em profundidade: capacidade (request-level) + dono (object-level)
         return [cap, IsOwnerOrAdmin()]
@@ -236,6 +237,55 @@ class KitViewSet(viewsets.ModelViewSet):
         kit.status = novo_status
         kit.save(update_fields=["status", "atualizado_em"])
         return Response(KitDetailSerializer(kit).data)
+
+    @action(detail=True, methods=["post"], url_path="enviar-para-assinatura")
+    def enviar_para_assinatura(self, request, pk=None):
+        """Envia o kit ao ZapSign para assinatura eletrônica.
+
+        Retorna {"sign_url": str} — o link que o usuário deve compartilhar com o cliente.
+        Se o kit já foi enviado anteriormente e o status ainda está pendente, retorna
+        o sign_url existente sem criar um novo documento no ZapSign.
+
+        O JurisDoc frontend gera documentos como blobs no browser sem salvar em DocumentoKit.
+        Por isso, se não houver documentos no banco, gera-os server-side automaticamente
+        antes de enviar ao ZapSign (mesmo caminho que o app usa).
+        """
+        from .services_zapsign import enviar_para_assinatura as _enviar
+
+        kit = self.get_object()
+
+        if kit.status != "finalizado":
+            return Response(
+                {"detail": "Apenas kits finalizados podem ser enviados para assinatura."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Reutiliza sign_url se já foi enviado e ainda está pendente
+        if kit.zapsign_sign_url and kit.zapsign_status == "pending":
+            return Response({"sign_url": kit.zapsign_sign_url, "reutilizado": True})
+
+        # JurisDoc frontend não salva DocumentoKit — gera server-side se necessário
+        if not kit.documentos.exclude(tipo="assinado_zapsign").exists():
+            from .services_documentos import gerar_documentos_kit
+            try:
+                resultado = gerar_documentos_kit(kit)
+                if not resultado.get("documentos"):
+                    return Response(
+                        {"detail": "Não foi possível gerar os documentos. Verifique se os templates estão cadastrados corretamente."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            except Exception as exc:
+                return Response(
+                    {"detail": f"Erro ao gerar documentos para assinatura: {exc}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            result = _enviar(kit)
+        except RuntimeError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"sign_url": result["sign_url"], "reutilizado": False})
 
     @action(detail=False, methods=["get"])
     def stats(self, request):

@@ -60,6 +60,11 @@ class Kit(models.Model):
     clausula_porcentagem_snapshot = models.TextField(blank=True, default="")
     advogados_snapshot = models.JSONField(default=list, blank=True)
 
+    # Integração ZapSign — assinatura eletrônica
+    zapsign_doc_token = models.CharField(max_length=100, null=True, blank=True, db_index=True)
+    zapsign_sign_url = models.URLField(max_length=500, null=True, blank=True)
+    zapsign_status = models.CharField(max_length=20, null=True, blank=True)
+
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
@@ -132,6 +137,7 @@ class DocumentoKit(models.Model):
         ("hipossuficiencia", "Declaração de Hipossuficiência"),
         ("ciencia", "Declaração de Ciência"),
         ("domicilio", "Declaração de Domicílio"),
+        ("assinado_zapsign", "Kit Assinado (ZapSign)"),
     ]
 
     kit = models.ForeignKey(

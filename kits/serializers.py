@@ -284,10 +284,13 @@ class KitDetailSerializer(serializers.ModelSerializer):
             "status",
             "acoes",
             "documentos",
+            "zapsign_doc_token",
+            "zapsign_sign_url",
+            "zapsign_status",
             "criado_em",
             "atualizado_em",
         ]
-        read_only_fields = ["id", "criado_por", "criado_em", "atualizado_em"]
+        read_only_fields = ["id", "criado_por", "criado_em", "atualizado_em", "zapsign_doc_token", "zapsign_sign_url", "zapsign_status"]
 
 
 class KitCreateSerializer(serializers.ModelSerializer):
