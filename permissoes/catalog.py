@@ -154,6 +154,8 @@ CAPACIDADES: list[dict] = [
      "descricao": "Abrir a página de Contratos", "categoria": "Acesso a páginas"},
     {"codigo": "pagina.kits", "recurso": "Página Produção de Kits", "acao": "Acessar",
      "descricao": "Abrir a página de Produção de Kits (lista, novo, editar)", "categoria": "Acesso a páginas"},
+    {"codigo": "pagina.notificacoes_extrajudiciais", "recurso": "Página Notificações Extrajudiciais", "acao": "Acessar",
+     "descricao": "Abrir a página de Notificações Extrajudiciais", "categoria": "Acesso a páginas"},
     {"codigo": "pagina.bancos_tarifas", "recurso": "Página Bancos e Tarifas", "acao": "Acessar",
      "descricao": "Abrir a página de Bancos e Tarifas", "categoria": "Acesso a páginas"},
     {"codigo": "pagina.advogados", "recurso": "Página Advogados", "acao": "Acessar",

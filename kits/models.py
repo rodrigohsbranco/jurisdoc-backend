@@ -60,6 +60,10 @@ class Kit(models.Model):
     clausula_porcentagem_snapshot = models.TextField(blank=True, default="")
     advogados_snapshot = models.JSONField(default=list, blank=True)
 
+    # Notificação extrajudicial: marca se o documento foi enviado ao banco.
+    notificacao_enviada = models.BooleanField(default=False, db_index=True)
+    notificacao_enviada_em = models.DateTimeField(null=True, blank=True)
+
     # Integração ZapSign — assinatura eletrônica
     zapsign_doc_token = models.CharField(max_length=100, null=True, blank=True, db_index=True)
     zapsign_sign_url = models.URLField(max_length=500, null=True, blank=True)
@@ -163,6 +167,9 @@ class DocumentoKit(models.Model):
 
 class BancoKit(models.Model):
     nome = models.CharField(max_length=100, unique=True)
+    cnpj = models.CharField(max_length=18, blank=True, default="")
+    endereco = models.CharField(max_length=255, blank=True, default="")
+    email = models.EmailField(blank=True, default="")
     ativo = models.BooleanField(default=True)
     ordem = models.IntegerField(default=0)
 

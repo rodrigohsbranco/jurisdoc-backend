@@ -1,5 +1,7 @@
 from django.core.files.storage import default_storage
 from django.db.models import Count, Q
+from django.http import HttpResponse
+from django.utils import timezone
 from rest_framework import viewsets, permissions, status, filters, generics
 from rest_framework.decorators import action
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -64,6 +66,8 @@ class KitViewSet(viewsets.ModelViewSet):
             "assinar": "kits.editar",
             "mudar_status": "kits.editar",
             "stats": "kits.visualizar",
+            "notificacao_pdf": "kits.visualizar",
+            "marcar_notificacao": "kits.editar",
             "enviar_para_assinatura": "kits.editar",
         })
         # Defesa em profundidade: capacidade (request-level) + dono (object-level)
@@ -215,6 +219,67 @@ class KitViewSet(viewsets.ModelViewSet):
         kit.status = "assinado"
         kit.save(update_fields=["status", "atualizado_em"])
         return Response(KitDetailSerializer(kit).data)
+
+    @action(detail=True, methods=["get"], url_path="notificacao-extrajudicial/pdf")
+    def notificacao_pdf(self, request, pk=None):
+        """
+        Renderiza a Notificação Extrajudicial do kit (template
+        'template_notificacao_extrajudicial') e devolve o PDF.
+        ?download=1 força o download (Content-Disposition attachment).
+        """
+        kit = self.get_object()
+        from templates_app.models import Template
+        from .services_documentos import (
+            build_kit_context,
+            _render_template_to_docx,
+            _docx_to_pdf,
+            _normalize,
+            slug_nome_cliente,
+        )
+
+        # Localiza o template ativo cujo nome contém 'notificacao extrajudicial'.
+        palavras = ["notificacao", "extrajudicial"]
+        tpl = next(
+            (t for t in Template.objects.filter(active=True)
+             if all(w in _normalize(t.name) for w in palavras)),
+            None,
+        )
+        if tpl is None:
+            return Response(
+                {"detail": "Template 'template_notificacao_extrajudicial' não encontrado ou inativo."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        try:
+            context = build_kit_context(kit)
+            docx_bytes = _render_template_to_docx(tpl, context)
+            pdf_bytes = _docx_to_pdf(docx_bytes)
+        except Exception as exc:
+            return Response(
+                {"detail": f"Falha ao gerar a notificação: {exc}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        nome = f"notificacao_extrajudicial_{slug_nome_cliente(kit.cliente.nome_completo)}.pdf"
+        download = str(request.query_params.get("download", "")).lower() in ("1", "true", "sim")
+        disposition = "attachment" if download else "inline"
+        resp = HttpResponse(pdf_bytes, content_type="application/pdf")
+        resp["Content-Disposition"] = f'{disposition}; filename="{nome}"'
+        return resp
+
+    @action(detail=True, methods=["post"], url_path="notificacao-enviada")
+    def marcar_notificacao(self, request, pk=None):
+        """Marca/desmarca a notificação como enviada ao banco. Body: {enviada: bool}."""
+        kit = self.get_object()
+        enviada = bool(request.data.get("enviada", True))
+        kit.notificacao_enviada = enviada
+        kit.notificacao_enviada_em = timezone.now() if enviada else None
+        kit.save(update_fields=["notificacao_enviada", "notificacao_enviada_em", "atualizado_em"])
+        return Response({
+            "id": kit.id,
+            "notificacao_enviada": kit.notificacao_enviada,
+            "notificacao_enviada_em": kit.notificacao_enviada_em,
+        })
 
     @action(detail=True, methods=["post"], url_path="mudar-status")
     def mudar_status(self, request, pk=None):

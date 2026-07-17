@@ -267,6 +267,8 @@ class KitListSerializer(serializers.ModelSerializer):
             "total_acoes",
             "origem",
             "app_criado_por_nome",
+            "notificacao_enviada",
+            "notificacao_enviada_em",
             "criado_em",
             "atualizado_em",
         ]
@@ -316,7 +318,7 @@ class KitCreateSerializer(serializers.ModelSerializer):
 class BancoKitSerializer(serializers.ModelSerializer):
     class Meta:
         model = BancoKit
-        fields = ["id", "nome", "ativo", "ordem"]
+        fields = ["id", "nome", "cnpj", "endereco", "email", "ativo", "ordem"]
         read_only_fields = ["id"]
 
 
