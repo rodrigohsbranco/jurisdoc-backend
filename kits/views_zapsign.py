@@ -159,15 +159,27 @@ class ZapSignWebhookView(APIView):
         logger.info(f"Kit #{kit.id} — {doc_kit.tipo}: assinatura recusada")
 
     def _handle_signed_legacy(self, kit: Kit, signed_file: str | None):
-        """Processa doc_signed para kits com PDF unificado (formato antigo)."""
+        """Processa doc_signed via token do Kit (fluxo extra_docs ou formato legado).
+
+        Com o fluxo extra_docs, o ZapSign dispara um único evento com o token
+        do documento principal (armazenado em Kit.zapsign_doc_token). Marca
+        todos os DocumentoKit como assinados e salva o PDF assinado retornado
+        (que pode ser somente o doc principal — comportamento a verificar em teste).
+        """
+        # Marca todos os DocumentoKit do kit como assinados
+        kit.documentos.exclude(tipo="assinado_zapsign").update(zapsign_status="signed")
         kit.zapsign_status = "signed"
         kit.status = "assinado"
         kit.save(update_fields=["zapsign_status", "status", "atualizado_em"])
-        logger.info(f"Kit #{kit.id} (legado): marcado como assinado via ZapSign")
+        logger.info(
+            f"Kit #{kit.id}: marcado como assinado via ZapSign "
+            f"(extra_docs / legado — signed_file={'sim' if signed_file else 'não'})"
+        )
 
         if signed_file:
             try:
                 pdf_bytes = baixar_arquivo_assinado(signed_file)
+                # Remove qualquer PDF assinado anterior para evitar duplicata
                 for doc in kit.documentos.filter(tipo="assinado_zapsign"):
                     doc.arquivo.delete(save=False)
                 kit.documentos.filter(tipo="assinado_zapsign").delete()
@@ -178,5 +190,8 @@ class ZapSignWebhookView(APIView):
                     ContentFile(pdf_bytes),
                     save=True,
                 )
+                logger.info(
+                    f"Kit #{kit.id}: PDF assinado salvo em {doc.arquivo.name}"
+                )
             except Exception as exc:
-                logger.error(f"Kit #{kit.id} (legado): falha ao salvar PDF assinado — {exc}")
+                logger.error(f"Kit #{kit.id}: falha ao salvar PDF assinado — {exc}")

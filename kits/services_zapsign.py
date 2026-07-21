@@ -1,15 +1,16 @@
 """Integração com a API ZapSign para assinatura eletrônica de kits.
 
 Fluxo:
-  1. enviar_para_assinatura(kit, config) → envia cada DocumentoKit como documento
-     separado no ZapSign, salva doc_token + sign_url em cada DocumentoKit.
-  2. Webhook recebe "doc_signed" por documento → baixa PDF assinado, atualiza status.
-     Quando todos os documentos estão assinados, kit.status = "assinado".
+  1. enviar_para_assinatura(kit, config) → cria UM documento no ZapSign com o
+     primeiro PDF como principal e os demais como extra_docs. O cliente recebe
+     um único link e assina todos os documentos em sequência.
+  2. Webhook recebe "doc_signed" (um evento para o bundle inteiro) com o token
+     do documento principal → marca kit + todos os DocumentoKit como assinados.
 
 Config dict aceita:
   nivel: "basico" | "medio" | "avancado"
   medio_tipo: "email" | "sms"  (usado apenas quando nivel == "medio")
-  rubrica: bool  (adiciona rubrica nas primeiras 2 páginas de cada documento)
+  rubrica: bool  (adiciona rubrica nas primeiras 2 páginas do documento principal)
 
 Autenticação: token estático Bearer (ZAPSIGN_API_TOKEN no .env / EasyPanel).
 """
@@ -145,16 +146,23 @@ def _build_signer(kit: Kit, config: dict, pdf_bytes: bytes | None = None) -> dic
 # Integração principal
 # ---------------------------------------------------------------------------
 
-def enviar_para_assinatura(kit: Kit, config: dict | None = None) -> list[dict]:
-    """Envia cada DocumentoKit como documento separado ao ZapSign.
+def enviar_para_assinatura(kit: Kit, config: dict | None = None) -> dict:
+    """Cria um único documento ZapSign com todos os PDFs do kit.
+
+    O primeiro DocumentoKit vira o documento principal; os demais são adicionados
+    como extra_docs via POST /docs/{token}/upload-extra-doc/. O signatário recebe
+    um único link e assina todos os documentos em sequência.
 
     Parâmetros:
         kit: instância do Kit com documentos já gerados.
         config: dict com nivel, medio_tipo, rubrica (ver cabeçalho do módulo).
 
-    Retorna lista de {tipo, tipo_display, sign_url, doc_token} por documento enviado.
-    Atualiza zapsign_doc_token, zapsign_sign_url, zapsign_status em cada DocumentoKit.
-    Atualiza kit.zapsign_status = "pending".
+    Retorna dict com:
+        sign_url: link único de assinatura (para o cliente)
+        documentos: lista de {tipo, tipo_display} dos documentos incluídos
+
+    Salva zapsign_doc_token + zapsign_sign_url no Kit.
+    Marca todos os DocumentoKit como zapsign_status="pending" (sem token individual).
     Lança RuntimeError com mensagem legível em caso de falha.
     """
     if config is None:
@@ -171,72 +179,96 @@ def enviar_para_assinatura(kit: Kit, config: dict | None = None) -> list[dict]:
             "Gere os documentos antes de enviar para assinatura."
         )
 
-    cliente = kit.cliente
-    nome_cliente = (cliente.nome_completo or "Cliente").strip()
-    results = []
+    nome_cliente = (kit.cliente.nome_completo or "Cliente").strip()
+    kit_label = kit.get_tipo_display()
 
+    # Carrega todos os PDFs válidos
+    docs_validos: list[tuple] = []
     for doc in docs:
         if not doc.arquivo or not doc.arquivo.name:
             logger.warning(f"DocumentoKit #{doc.id} sem arquivo — pulado")
             continue
-
         try:
             with doc.arquivo.open("rb") as f:
                 pdf_bytes = f.read()
+            docs_validos.append((doc, pdf_bytes))
         except FileNotFoundError:
             logger.warning(f"Arquivo não encontrado: {doc.arquivo.name} — pulado")
-            continue
 
-        pdf_b64 = base64.b64encode(pdf_bytes).decode("utf-8")
-        signer = _build_signer(kit, config, pdf_bytes)
-        doc_name = f"{doc.get_tipo_display()} — {nome_cliente}"
-
-        payload = {
-            "name": doc_name,
-            "base64_pdf": pdf_b64,
-            "lang": "pt-br",
-            "disable_signer_emails": True,
-            "signers": [signer],
-        }
-
-        data = _post("/docs/", payload)
-
-        doc_token = data.get("token")
-        signers_resp = data.get("signers", [])
-        sign_url = signers_resp[0].get("sign_url") if signers_resp else None
-
-        if not doc_token or not sign_url:
-            logger.warning(
-                f"Resposta ZapSign sem token/sign_url para {doc.tipo} — pulado"
-            )
-            continue
-
-        doc.zapsign_doc_token = doc_token
-        doc.zapsign_sign_url = sign_url
-        doc.zapsign_status = "pending"
-        doc.save(update_fields=["zapsign_doc_token", "zapsign_sign_url", "zapsign_status"])
-
-        results.append({
-            "tipo": doc.tipo,
-            "tipo_display": doc.get_tipo_display(),
-            "sign_url": sign_url,
-            "doc_token": doc_token,
-        })
-
-        logger.info(
-            f"Kit #{kit.id} — {doc.tipo} enviado ao ZapSign (token={doc_token[:8]}…)"
-        )
-
-    if not results:
+    if not docs_validos:
         raise RuntimeError(
-            "Nenhum documento pôde ser enviado ao ZapSign. "
-            "Verifique se os arquivos estão acessíveis."
+            "Nenhum arquivo de documento encontrado. "
+            "Regenere os documentos antes de enviar para assinatura."
         )
 
-    kit.zapsign_status = "pending"
-    kit.save(update_fields=["zapsign_status", "atualizado_em"])
+    # ── Documento principal (primeiro PDF) ──
+    doc_principal, pdf_bytes_principal = docs_validos[0]
+    signer = _build_signer(kit, config, pdf_bytes_principal)
 
-    return results
+    payload = {
+        "name": f"Kit {kit_label} — {nome_cliente}",
+        "base64_pdf": base64.b64encode(pdf_bytes_principal).decode("utf-8"),
+        "lang": "pt-br",
+        "disable_signer_emails": True,
+        "signers": [signer],
+    }
+
+    data = _post("/docs/", payload)
+
+    main_token = data.get("token")
+    signers_resp = data.get("signers", [])
+    sign_url = signers_resp[0].get("sign_url") if signers_resp else None
+
+    if not main_token or not sign_url:
+        raise RuntimeError(
+            "Resposta inválida do ZapSign ao criar documento principal: "
+            "token ou sign_url ausente."
+        )
+
+    logger.info(
+        f"Kit #{kit.id} — documento principal '{doc_principal.tipo}' criado "
+        f"(token={main_token[:8]}…)"
+    )
+
+    # ── Extra docs (demais PDFs) ──
+    for doc, pdf_bytes in docs_validos[1:]:
+        try:
+            _post(
+                f"/docs/{main_token}/upload-extra-doc/",
+                {
+                    "name": doc.get_tipo_display(),
+                    "base64_pdf": base64.b64encode(pdf_bytes).decode("utf-8"),
+                },
+            )
+            logger.info(f"Kit #{kit.id} — '{doc.tipo}' adicionado como extra_doc")
+        except RuntimeError as exc:
+            logger.error(
+                f"Kit #{kit.id} — falha ao adicionar '{doc.tipo}' como extra_doc: {exc}"
+            )
+            raise
+
+    # ── Persiste estado ──
+    # Limpa tokens individuais (não existem mais no novo fluxo) e marca tudo como pending
+    kit.documentos.exclude(tipo="assinado_zapsign").update(
+        zapsign_doc_token=None,
+        zapsign_sign_url=None,
+        zapsign_status="pending",
+    )
+
+    kit.zapsign_doc_token = main_token
+    kit.zapsign_sign_url = sign_url
+    kit.zapsign_status = "pending"
+    kit.save(
+        update_fields=["zapsign_doc_token", "zapsign_sign_url", "zapsign_status", "atualizado_em"]
+    )
+
+    return {
+        "sign_url": sign_url,
+        "documentos": [
+            {"tipo": d.tipo, "tipo_display": d.get_tipo_display()}
+            for d, _ in docs_validos
+        ],
+    }
 
 
 def baixar_arquivo_assinado(url: str) -> bytes:
