@@ -10,7 +10,7 @@ Fluxo:
 Config dict aceita:
   nivel: "basico" | "medio" | "avancado"
   medio_tipo: "email" | "sms"  (usado apenas quando nivel == "medio")
-  rubrica: bool  (adiciona rubrica nas primeiras 2 páginas do documento principal)
+  assinatura_paginas: bool  (adiciona bloco de assinatura nas primeiras 2 páginas)
 
 Autenticação: token estático Bearer (ZAPSIGN_API_TOKEN no .env / EasyPanel).
 """
@@ -73,8 +73,12 @@ def _post(endpoint: str, payload: dict) -> dict:
 # Helpers internos
 # ---------------------------------------------------------------------------
 
-def _get_rubrica_list(pdf_bytes: bytes, max_pages: int = 2) -> list[dict]:
-    """Retorna lista de rubricas posicionais nas primeiras páginas do documento."""
+def _get_assinatura_list(pdf_bytes: bytes, max_pages: int = 2) -> list[dict]:
+    """Retorna lista de assinaturas posicionais nas primeiras páginas do documento.
+
+    Usa type='signature' (assinatura completa) com dimensões recomendadas pelo ZapSign
+    para A4 vertical. Posicionada no canto inferior esquerdo de cada página.
+    """
     try:
         from pypdf import PdfReader
         reader = PdfReader(BytesIO(pdf_bytes))
@@ -88,18 +92,18 @@ def _get_rubrica_list(pdf_bytes: bytes, max_pages: int = 2) -> list[dict]:
             "page": p + 1,
             "relative_position_bottom": 3,
             "relative_position_left": 2,
-            "relative_size_x": 15,
-            "relative_size_y": 4,
-            "type": "visto",
+            "relative_size_x": 20,
+            "relative_size_y": 9,
+            "type": "signature",
         }
         for p in range(pages)
     ]
 
 
 def _build_signer(kit: Kit, config: dict, pdf_bytes: bytes | None = None) -> dict:
-    """Monta o objeto signer com auth_mode, opções de segurança e rubrica."""
+    """Monta o objeto signer com auth_mode, opções de segurança e assinatura posicional."""
     nivel = config.get("nivel", "basico")
-    com_rubrica = config.get("rubrica", False)
+    com_assinatura_paginas = config.get("assinatura_paginas", False)
 
     cliente = kit.cliente
     nome = (cliente.nome_completo or "Cliente").strip()
@@ -135,9 +139,9 @@ def _build_signer(kit: Kit, config: dict, pdf_bytes: bytes | None = None) -> dic
         signer["phone_number"] = telefone_digits
         signer["blank_phone"] = False
 
-    # Rubrica nas primeiras 2 páginas
-    if com_rubrica and pdf_bytes:
-        signer["rubric_list"] = _get_rubrica_list(pdf_bytes)
+    # Assinatura posicional nas primeiras 2 páginas
+    if com_assinatura_paginas and pdf_bytes:
+        signer["rubric_list"] = _get_assinatura_list(pdf_bytes)
 
     return signer
 

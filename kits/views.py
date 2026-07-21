@@ -322,7 +322,7 @@ class KitViewSet(viewsets.ModelViewSet):
         Body (opcional):
           nivel: "basico" | "medio" | "avancado"  (padrão: "basico")
           medio_tipo: "email" | "sms"              (padrão: "email", usado quando nivel=="medio")
-          rubrica: bool                            (padrão: false)
+          assinatura_paginas: bool                 (padrão: false)
 
         Retorna:
           {
@@ -340,7 +340,7 @@ class KitViewSet(viewsets.ModelViewSet):
         config = {
             "nivel": request.data.get("nivel", "basico"),
             "medio_tipo": request.data.get("medio_tipo", "email"),
-            "rubrica": bool(request.data.get("rubrica", False)),
+            "assinatura_paginas": bool(request.data.get("assinatura_paginas", False)),
         }
 
         if kit.status == "assinado":
