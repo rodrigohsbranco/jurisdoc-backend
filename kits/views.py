@@ -67,6 +67,7 @@ class KitViewSet(viewsets.ModelViewSet):
             "mudar_status": "kits.editar",
             "stats": "kits.visualizar",
             "notificacao_pdf": "kits.visualizar",
+            "notificacoes_list": "kits.visualizar",
             "marcar_notificacao": "kits.editar",
             "enviar_para_assinatura": "kits.editar",
         })
@@ -228,32 +229,24 @@ class KitViewSet(viewsets.ModelViewSet):
         ?download=1 força o download (Content-Disposition attachment).
         """
         kit = self.get_object()
-        from templates_app.models import Template
-        from .services_documentos import (
-            build_kit_context,
-            _render_template_to_docx,
-            _docx_to_pdf,
-            _normalize,
-            slug_nome_cliente,
-        )
+        from .services_documentos import gerar_notificacao_pdf, slug_nome_cliente
 
-        # Localiza o template ativo cujo nome contém 'notificacao extrajudicial'.
-        palavras = ["notificacao", "extrajudicial"]
-        tpl = next(
-            (t for t in Template.objects.filter(active=True)
-             if all(w in _normalize(t.name) for w in palavras)),
-            None,
-        )
-        if tpl is None:
-            return Response(
-                {"detail": "Template 'template_notificacao_extrajudicial' não encontrado ou inativo."},
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        acao = None
+        acao_id = request.query_params.get("acao_id")
+        if acao_id:
+            acao = kit.acoes.filter(id=acao_id).first()
+            if acao is None:
+                return Response(
+                    {"detail": "Ação não encontrada neste kit."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
 
         try:
-            context = build_kit_context(kit)
-            docx_bytes = _render_template_to_docx(tpl, context)
-            pdf_bytes = _docx_to_pdf(docx_bytes)
+            pdf_bytes = gerar_notificacao_pdf(kit, acao)
+        except FileNotFoundError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
             return Response(
                 {"detail": f"Falha ao gerar a notificação: {exc}"},
@@ -266,6 +259,25 @@ class KitViewSet(viewsets.ModelViewSet):
         resp = HttpResponse(pdf_bytes, content_type="application/pdf")
         resp["Content-Disposition"] = f'{disposition}; filename="{nome}"'
         return resp
+
+    @action(detail=True, methods=["get"], url_path="notificacoes")
+    def notificacoes_list(self, request, pk=None):
+        """Lista as notificações extrajudiciais do kit — uma por ação com tipo
+        mapeado (cada uma vira uma aba no drawer)."""
+        kit = self.get_object()
+        from .services_documentos import notificacao_documentos, TIPO_ACAO_NOTIFICACAO
+        out = []
+        for d in notificacao_documentos(kit):
+            rep = d["acoes"][0]
+            out.append({
+                "acao_id": d["rep_id"],  # id representativo (usado no ?acao_id=)
+                "tipo_acao": d["tipo_acao"],
+                "tipo_acao_display": rep.get_tipo_acao_display(),
+                "banco": d["banco"],
+                "qtd_contratos": len(d["acoes"]),
+                "tipo_notificacao": TIPO_ACAO_NOTIFICACAO.get(d["tipo_acao"], ""),
+            })
+        return Response({"notificacoes": out})
 
     @action(detail=True, methods=["post"], url_path="notificacao-enviada")
     def marcar_notificacao(self, request, pk=None):
