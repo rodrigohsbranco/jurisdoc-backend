@@ -91,10 +91,11 @@ class AcaoKitAppSerializer(AcaoKitSerializer):
 class AppDocumentoKitSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
     nome_arquivo = serializers.SerializerMethodField()
+    tipo_display = serializers.CharField(source="get_tipo_display", read_only=True)
 
     class Meta:
         model = DocumentoKit
-        fields = ["id", "tipo", "nome_arquivo", "url", "gerado_em"]
+        fields = ["id", "tipo", "tipo_display", "nome_arquivo", "url", "gerado_em", "zapsign_status"]
 
     def get_url(self, obj):
         request = self.context.get("request")
@@ -164,6 +165,8 @@ class KitAppDetailSerializer(serializers.ModelSerializer):
             "documentos",
             "advogados_snapshot",
             "clausula_porcentagem_snapshot",
+            "zapsign_sign_url",
+            "zapsign_status",
             "origem",
             "app_criado_por_nome",
             "criado_em",
@@ -177,6 +180,8 @@ class KitAppDetailSerializer(serializers.ModelSerializer):
             "app_criado_por_nome",
             "advogados_snapshot",
             "clausula_porcentagem_snapshot",
+            "zapsign_sign_url",
+            "zapsign_status",
         ]
 
     def get_requer_acoes(self, obj):
