@@ -4,6 +4,9 @@ set -e
 # Run database migrations on deploy/startup by default.
 if [ "${RUN_DB_MIGRATIONS:-true}" = "true" ]; then
   python manage.py migrate --noinput
+  # Sincroniza o catálogo de capacidades (idempotente) — garante que novas
+  # capacidades (ex.: kits.honorarios_iniciais) existam no banco após o deploy.
+  python manage.py sync_capacidades
 fi
 
 exec gunicorn \

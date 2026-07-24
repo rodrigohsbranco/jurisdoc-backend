@@ -18,6 +18,14 @@ class User(AbstractUser):
         blank=True,
         related_name="usuarios",
     )
+    # Capacidades concedidas DIRETAMENTE ao usuário, fora do perfil. Usado para
+    # capacidades sensíveis (ex.: honorários) atribuídas por usuário na página
+    # de Permissões. Somam-se às do perfil e NÃO são herdadas por admin.
+    capacidades_diretas = models.ManyToManyField(
+        "permissoes.Capacidade",
+        blank=True,
+        related_name="usuarios_diretos",
+    )
 
     def __str__(self):
         return self.username

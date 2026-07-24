@@ -1,9 +1,11 @@
 from django.core.files.storage import default_storage
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 
 from cadastro.media_paths import build_media_file_url
 from cadastro.serializers import ClienteSerializer
 from cadastro.validators import validate_uf
+from permissoes.permissions import CAP_HONORARIOS_INICIAIS, user_has_capability_estrita
 
 from .models import (
     AcaoKit,
@@ -279,6 +281,9 @@ class KitDetailSerializer(serializers.ModelSerializer):
     acoes = AcaoKitSerializer(many=True, read_only=True)
     documentos = DocumentoKitSerializer(many=True, read_only=True)
     criado_por_nome = serializers.CharField(source="criado_por.username", read_only=True)
+    honorarios_iniciais = serializers.DecimalField(
+        max_digits=12, decimal_places=2, required=False, allow_null=True,
+    )
 
     class Meta:
         model = Kit
@@ -292,6 +297,7 @@ class KitDetailSerializer(serializers.ModelSerializer):
             "status",
             "acoes",
             "documentos",
+            "honorarios_iniciais",
             "zapsign_doc_token",
             "zapsign_sign_url",
             "zapsign_status",
@@ -299,6 +305,27 @@ class KitDetailSerializer(serializers.ModelSerializer):
             "atualizado_em",
         ]
         read_only_fields = ["id", "criado_por", "criado_em", "atualizado_em", "zapsign_doc_token", "zapsign_sign_url", "zapsign_status"]
+
+    def _pode_honorarios(self) -> bool:
+        """True só se o usuário tem a capacidade sensível (sem bypass de admin)."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        return user_has_capability_estrita(user, CAP_HONORARIOS_INICIAIS)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        # Sem a capacidade, o valor nem sai na resposta.
+        if not self._pode_honorarios():
+            data.pop("honorarios_iniciais", None)
+        return data
+
+    def validate(self, attrs):
+        # Sem a capacidade, tentativa de gravar honorários é bloqueada (403).
+        if "honorarios_iniciais" in attrs and not self._pode_honorarios():
+            raise PermissionDenied(
+                "Você não tem permissão para definir honorários iniciais."
+            )
+        return attrs
 
 
 class KitCreateSerializer(serializers.ModelSerializer):

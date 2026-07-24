@@ -36,11 +36,13 @@ def user_capacidades(user) -> set[str]:
     cached = getattr(user, _CACHE_ATTR, None)
     if cached is not None:
         return cached
+    codigos: set[str] = set()
     permissao = getattr(user, "permissao", None)
-    if not permissao:
-        setattr(user, _CACHE_ATTR, set())
-        return getattr(user, _CACHE_ATTR)
-    codigos = set(permissao.capacidades.values_list("codigo", flat=True))
+    if permissao:
+        codigos |= set(permissao.capacidades.values_list("codigo", flat=True))
+    # Capacidades concedidas diretamente ao usuário (fora do perfil).
+    if hasattr(user, "capacidades_diretas"):
+        codigos |= set(user.capacidades_diretas.values_list("codigo", flat=True))
     setattr(user, _CACHE_ATTR, codigos)
     return codigos
 
@@ -50,6 +52,26 @@ def user_has_capability(user, codigo: str) -> bool:
         return False
     if getattr(user, "is_admin", False):
         return True
+    return codigo in user_capacidades(user)
+
+
+# ---------------------------------------------------------------------------
+# Capacidades sensíveis — NÃO herdadas por admin.
+# Diferente do padrão do sistema (onde is_admin=True passa em tudo), estas
+# precisam ser concedidas explicitamente via Permissao, mesmo para admins.
+# ---------------------------------------------------------------------------
+CAP_HONORARIOS_INICIAIS = "kits.honorarios_iniciais"
+CAPACIDADES_SEM_BYPASS_ADMIN = {CAP_HONORARIOS_INICIAIS}
+
+
+def user_has_capability_estrita(user, codigo: str) -> bool:
+    """Checa a capacidade SEM o atalho de admin.
+
+    Para capacidades sensíveis, admin também só passa se a capacidade estiver
+    de fato atribuída à sua Permissao.
+    """
+    if not user or not user.is_authenticated:
+        return False
     return codigo in user_capacidades(user)
 
 

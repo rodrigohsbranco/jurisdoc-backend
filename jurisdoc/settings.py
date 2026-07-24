@@ -184,6 +184,13 @@ APP_INTEGRATION_SECRET = os.getenv("APP_INTEGRATION_SECRET", SECRET_KEY)
 # Token da API ZapSign (assinatura eletrônica). Defina ZAPSIGN_API_TOKEN no .env / EasyPanel.
 ZAPSIGN_API_TOKEN = os.getenv("ZAPSIGN_API_TOKEN", "")
 
+# Google Places API (autocomplete de endereço via proxy do backend).
+# A mesma chave do front pode ser usada aqui. Como ela é restrita por HTTP
+# referrer, o backend envia GOOGLE_MAPS_PLACES_REFERER (um referrer permitido
+# pela chave, ex.: http://localhost:3000) para a chamada REST ser aceita em produção.
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "")
+GOOGLE_MAPS_PLACES_REFERER = os.getenv("GOOGLE_MAPS_PLACES_REFERER", "http://localhost:3000")
+
 # Log de erros 500 no console (Gunicorn/EasyPanel) para ver traceback com DEBUG=0
 LOGGING = {
     "version": 1,

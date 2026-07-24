@@ -60,6 +60,11 @@ class Kit(models.Model):
     clausula_porcentagem_snapshot = models.TextField(blank=True, default="")
     advogados_snapshot = models.JSONField(default=list, blank=True)
 
+    # Honorários iniciais do kit (R$). Campo sensível: só é retornado/aceito pela
+    # API para quem tem a capacidade "kits.honorarios_iniciais" (não herdada por
+    # admin) — gate em KitDetailSerializer.
+    honorarios_iniciais = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
     # Notificação extrajudicial: marca se o documento foi enviado ao banco.
     notificacao_enviada = models.BooleanField(default=False, db_index=True)
     notificacao_enviada_em = models.DateTimeField(null=True, blank=True)
