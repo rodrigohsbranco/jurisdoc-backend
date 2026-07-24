@@ -71,9 +71,13 @@ class ZapSignWebhookView(APIView):
             logger.warning("ZapSign webhook: token ausente no payload — ignorado")
             return Response({"detail": "ok"})
 
-        logger.info(f"ZapSign webhook: event_type='{event_type}' token='{doc_token[:16]}…'")
+        extra_docs = request.data.get("extra_docs") or []
+        logger.info(
+            f"ZapSign webhook: event_type='{event_type}' token='{doc_token[:16]}…' "
+            f"extra_docs={len(extra_docs)}"
+        )
 
-        # Busca por DocumentoKit (novo formato — múltiplos documentos)
+        # Busca por DocumentoKit (fluxo antigo — um doc ZapSign por DocumentoKit)
         doc_kit = (
             DocumentoKit.objects
             .select_related("kit__cliente")
@@ -94,14 +98,14 @@ class ZapSignWebhookView(APIView):
                 logger.info(f"ZapSign webhook: evento '{event_type}' — ignorado")
             return Response({"detail": "ok"})
 
-        # Fallback: busca pelo Kit direto (formato legado — PDF unificado)
-        kit = Kit.objects.filter(zapsign_doc_token=doc_token).first()
+        # Busca pelo Kit (fluxo extra_docs — token do bundle armazenado no Kit)
+        kit = Kit.objects.select_related("cliente").filter(zapsign_doc_token=doc_token).first()
         if kit:
             logger.info(
-                f"ZapSign webhook (legado): Kit #{kit.id} encontrado pelo doc_token do kit"
+                f"ZapSign webhook (extra_docs): Kit #{kit.id} encontrado pelo doc_token"
             )
             if event_type == "doc_signed":
-                self._handle_signed_legacy(kit, signed_file)
+                self._handle_signed_bundle(kit, signed_file, extra_docs)
             elif event_type == "doc_refused":
                 kit.zapsign_status = "refused"
                 kit.save(update_fields=["zapsign_status", "atualizado_em"])
@@ -158,25 +162,66 @@ class ZapSignWebhookView(APIView):
         kit.save(update_fields=["zapsign_status", "atualizado_em"])
         logger.info(f"Kit #{kit.id} — {doc_kit.tipo}: assinatura recusada")
 
-    def _handle_signed_legacy(self, kit: Kit, signed_file: str | None):
-        """Processa doc_signed para kits com PDF unificado (formato antigo)."""
+    def _handle_signed_bundle(self, kit: Kit, signed_file: str | None, extra_docs: list):
+        """Fluxo extra_docs: bundle assinado, um único evento para o kit inteiro.
+
+        O payload do ZapSign inclui:
+          - signed_file: URL do PDF assinado do documento principal
+          - extra_docs[]: [{token, name, signed_file, ...}] para cada extra_doc
+
+        Os DocumentoKit são mapeados na mesma ordem em que foram enviados ao
+        ZapSign: order_by("tipo") — o principal (index 0) recebe signed_file,
+        os extras (index 1+) recebem extra_docs[i-1]["signed_file"].
+        """
+        docs = list(
+            kit.documentos
+            .exclude(tipo="assinado_zapsign")
+            .order_by("tipo")
+        )
+        cliente_slug = slug_nome_cliente(kit.cliente.nome_completo or "")
+
+        # Monta pares (DocumentoKit, url_signed) na ordem de envio
+        pares: list[tuple] = []
+        if signed_file and docs:
+            pares.append((docs[0], signed_file))
+        for i, extra in enumerate(extra_docs or []):
+            idx = i + 1
+            if idx < len(docs):
+                url = extra.get("signed_file")
+                if url:
+                    pares.append((docs[idx], url))
+
+        logger.info(
+            f"Kit #{kit.id}: bundle assinado — {len(pares)} PDF(s) disponível(is) "
+            f"de {len(docs)} DocumentoKit(s)"
+        )
+
+        # Baixa e salva cada PDF assinado individualmente
+        ids_processados: set[int] = set()
+        for doc, url in pares:
+            try:
+                pdf_bytes = baixar_arquivo_assinado(url)
+                doc.arquivo.delete(save=False)
+                doc.arquivo.save(
+                    f"kits/{kit.id}/assinado_{doc.tipo}_{cliente_slug}.pdf",
+                    ContentFile(pdf_bytes),
+                    save=False,
+                )
+                doc.zapsign_status = "signed"
+                doc.save(update_fields=["arquivo", "zapsign_status"])
+                ids_processados.add(doc.id)
+                logger.info(f"Kit #{kit.id} — {doc.tipo}: PDF assinado salvo em {doc.arquivo.name}")
+            except Exception as exc:
+                logger.error(f"Kit #{kit.id} — {doc.tipo}: falha ao salvar PDF assinado — {exc}")
+
+        # Marca como signed os docs sem URL de assinatura (incomum, mas defensivo)
+        for doc in docs:
+            if doc.id not in ids_processados and doc.zapsign_status != "signed":
+                doc.zapsign_status = "signed"
+                doc.save(update_fields=["zapsign_status"])
+
+        # Marca o kit
         kit.zapsign_status = "signed"
         kit.status = "assinado"
         kit.save(update_fields=["zapsign_status", "status", "atualizado_em"])
-        logger.info(f"Kit #{kit.id} (legado): marcado como assinado via ZapSign")
-
-        if signed_file:
-            try:
-                pdf_bytes = baixar_arquivo_assinado(signed_file)
-                for doc in kit.documentos.filter(tipo="assinado_zapsign"):
-                    doc.arquivo.delete(save=False)
-                kit.documentos.filter(tipo="assinado_zapsign").delete()
-                cliente_slug = slug_nome_cliente(kit.cliente.nome_completo or "")
-                doc = DocumentoKit(kit=kit, tipo="assinado_zapsign")
-                doc.arquivo.save(
-                    f"kits/{kit.id}/assinado_{cliente_slug}.pdf",
-                    ContentFile(pdf_bytes),
-                    save=True,
-                )
-            except Exception as exc:
-                logger.error(f"Kit #{kit.id} (legado): falha ao salvar PDF assinado — {exc}")
+        logger.info(f"Kit #{kit.id}: marcado como assinado (bundle extra_docs)")

@@ -481,6 +481,93 @@ class KitAppViewSet(viewsets.ModelViewSet):
             "total": len(docs),
         })
 
+    # ── Assinatura ZapSign ──
+
+    @action(detail=True, methods=["post"], url_path="enviar-para-assinatura")
+    def enviar_para_assinatura(self, request, pk=None):
+        """Envia todos os documentos do kit ao ZapSign como bundle (extra_docs).
+
+        Body (opcional):
+          nivel: "basico" | "medio" | "avancado"  (padrão: "basico")
+          medio_tipo: "email" | "sms"              (padrão: "email", usado quando nivel=="medio")
+          assinatura_paginas: bool                 (padrão: false)
+
+        Retorna:
+          {
+            "status": str,
+            "sign_url": str,
+            "documentos": [{"tipo": str, "tipo_display": str}],
+            "reutilizado": bool
+          }
+        """
+        from .services_zapsign import enviar_para_assinatura as _enviar
+
+        kit = self.get_object()
+        config = {
+            "nivel": request.data.get("nivel", "basico"),
+            "medio_tipo": request.data.get("medio_tipo", "email"),
+            "assinatura_paginas": bool(request.data.get("assinatura_paginas", False)),
+        }
+
+        if kit.status == "assinado":
+            return Response(
+                {"detail": "Este kit já foi assinado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Auto-finaliza se necessário
+        if kit.status not in ("finalizado", "assinado"):
+            if kit.tipo != "previdenciario" and kit.acoes.count() == 0:
+                return Response(
+                    {"detail": "O kit precisa ter pelo menos uma ação antes de ser enviado para assinatura."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            kit.status = "finalizado"
+            kit.save(update_fields=["status", "atualizado_em"])
+
+        # Reutiliza link existente se já enviado e ainda pendente
+        if kit.zapsign_status == "pending" and kit.zapsign_sign_url:
+            docs_info = [
+                {"tipo": d.tipo, "tipo_display": d.get_tipo_display()}
+                for d in kit.documentos.exclude(tipo="assinado_zapsign").order_by("tipo")
+            ]
+            return Response({
+                "status": kit.status,
+                "sign_url": kit.zapsign_sign_url,
+                "documentos": docs_info,
+                "reutilizado": True,
+            })
+
+        # Gera documentos server-side se ainda não existirem
+        if not kit.documentos.exclude(tipo="assinado_zapsign").exists():
+            from .services_documentos import gerar_documentos_kit
+            if kit.tipo == "previdenciario":
+                _auto_snapshot_previdenciario(kit)
+            try:
+                documentos_gerados, _ = gerar_documentos_kit(kit)
+                if not documentos_gerados:
+                    return Response(
+                        {"detail": "Não foi possível gerar os documentos. Verifique se os templates estão cadastrados."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            except Exception as exc:
+                return Response(
+                    {"detail": f"Erro ao gerar documentos para assinatura: {exc}"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            result = _enviar(kit, config)
+        except RuntimeError as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            "status": kit.status,
+            "sign_url": result["sign_url"],
+            "documentos": result["documentos"],
+            "reutilizado": False,
+        })
+
     # ── Stats ──
 
     @action(detail=False, methods=["get"])
