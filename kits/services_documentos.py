@@ -408,6 +408,9 @@ def build_kit_context(kit: Kit) -> dict:
         "responsavel_legal_cpf": _fmt_cpf(c.responsavel_legal_cpf or ""),
         "clausula_porcentagem": kit.clausula_porcentagem_snapshot or "",
         "honorarios_iniciais": _texto_honorarios_iniciais(kit),
+        # Palavra seguinte no template: minúscula quando há cláusula de honorários
+        # (o texto termina em vírgula), maiúscula quando começa frase nova.
+        "honorarios_pelos": "pelos" if _tem_honorarios_iniciais(kit) else "Pelos",
         # Defaults de procuração (sobrescritos pelo build_procuracao_context por ação)
         "procuracao_frase_acao": "",
         "procuracao_usa_numero_contrato": False,
@@ -534,11 +537,16 @@ _HONORARIOS_INICIAIS_TEXTO = (
 )
 
 
+def _tem_honorarios_iniciais(kit: Kit) -> bool:
+    valor = getattr(kit, "honorarios_iniciais", None)
+    return bool(valor) and Decimal(valor) > 0
+
+
 def _texto_honorarios_iniciais(kit: Kit) -> str:
     """Cláusula de honorários iniciais para o contrato. Vazio se não houver valor."""
-    valor = getattr(kit, "honorarios_iniciais", None)
-    if not valor or Decimal(valor) <= 0:
+    if not _tem_honorarios_iniciais(kit):
         return ""
+    valor = kit.honorarios_iniciais
     return _HONORARIOS_INICIAIS_TEXTO.format(
         valor=_moeda_br(valor), extenso=_extenso_moeda(valor),
     )
