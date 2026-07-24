@@ -25,6 +25,7 @@ urlpatterns = [
     path("api/app/", include("advogados.urls_app")),
     path("api/app/", include("kits.urls_app")),
     path("api/zapsign/", include("kits.urls_zapsign")),
+    path("api/maps/", include("kits.urls_maps")),
     path("api/", include("contracts.urls")),
     # Serve media files via Django (funciona em produção e desenvolvimento)
     re_path(r"^media/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}),

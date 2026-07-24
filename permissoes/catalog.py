@@ -89,6 +89,11 @@ CAPACIDADES: list[dict] = [
      "descricao": "Alterar kits existentes", "categoria": "Documentos"},
     {"codigo": "kits.deletar", "recurso": "Produção de Kits", "acao": "Deletar",
      "descricao": "Remover kits", "categoria": "Documentos"},
+    # Capacidade sensível: NÃO é herdada automaticamente por admin — mesmo
+    # is_admin=True precisa recebê-la explicitamente via Permissao para ver/editar
+    # o campo de honorários iniciais (checada por user_has_capability_estrita).
+    {"codigo": "kits.honorarios_iniciais", "recurso": "Produção de Kits", "acao": "Honorários iniciais",
+     "descricao": "Ver e editar o campo de honorários iniciais do kit (não herdada por admin)", "categoria": "Documentos"},
 
     # ===================== Sistema =====================
     {"codigo": "bancos_tarifas.visualizar", "recurso": "Bancos e Tarifas", "acao": "Visualizar",

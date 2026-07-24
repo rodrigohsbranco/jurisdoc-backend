@@ -37,9 +37,12 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "permissao_detalhe", "capacidades"]
 
     def get_capacidades(self, obj) -> list[str]:
-        if not obj.permissao_id:
-            return []
-        return list(obj.permissao.capacidades.values_list("codigo", flat=True))
+        codigos = set()
+        if obj.permissao_id:
+            codigos |= set(obj.permissao.capacidades.values_list("codigo", flat=True))
+        # capacidades concedidas diretamente ao usuário (fora do perfil)
+        codigos |= set(obj.capacidades_diretas.values_list("codigo", flat=True))
+        return sorted(codigos)
 
     def create(self, validated_data):
         password = validated_data.pop("password", None)
