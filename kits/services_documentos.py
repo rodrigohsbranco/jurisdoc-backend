@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import unicodedata
 from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 from io import BytesIO
 from pathlib import Path
 
@@ -406,6 +407,7 @@ def build_kit_context(kit: Kit) -> dict:
         "responsavel_legal_nome": c.responsavel_legal_nome or "",
         "responsavel_legal_cpf": _fmt_cpf(c.responsavel_legal_cpf or ""),
         "clausula_porcentagem": kit.clausula_porcentagem_snapshot or "",
+        "honorarios_iniciais": _texto_honorarios_iniciais(kit),
         # Defaults de procuração (sobrescritos pelo build_procuracao_context por ação)
         "procuracao_frase_acao": "",
         "procuracao_usa_numero_contrato": False,
@@ -478,6 +480,68 @@ def _extenso_reais_mil(v: int) -> str:
     """Extenso de valor múltiplo de mil: 25000 -> 'vinte e cinco mil reais'."""
     milhares = v // 1000
     return "mil reais" if milhares == 1 else f"{_extenso_ate_999(milhares)} mil reais"
+
+
+# ── Moeda e extenso com centavos (espelha useCurrencyMask/useNumeroExtenso do front) ──
+
+def _num_milhares(n: int) -> str:
+    """Inteiro por extenso (mesma lógica de converterMilhares do front)."""
+    if n < 1000:
+        return _extenso_ate_999(n)
+    if n < 1_000_000:
+        mil, resto = divmod(n, 1000)
+        mil_str = "um mil" if mil == 1 else f"{_extenso_ate_999(mil)} mil"
+        return mil_str + (f" {_extenso_ate_999(resto)}" if resto else "")
+    if n < 1_000_000_000:
+        milhao, resto = divmod(n, 1_000_000)
+        milhao_str = "um milhão" if milhao == 1 else f"{_extenso_ate_999(milhao)} milhões"
+        return milhao_str + (f" {_num_milhares(resto)}" if resto else "")
+    return ""
+
+
+def _moeda_br(valor: Decimal) -> str:
+    """Decimal -> '1.234,56' (mesma saída do formatCurrency do front)."""
+    v = Decimal(valor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    inteiro = int(v)
+    centavos = int((v - inteiro) * 100)
+    return f"{inteiro:,}".replace(",", ".") + f",{centavos:02d}"
+
+
+def _extenso_moeda(valor: Decimal) -> str:
+    """Decimal -> extenso com reais e centavos (espelha numeroParaExtenso do front)."""
+    v = Decimal(valor).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    inteiro = int(v)
+    centavos = int((v - inteiro) * 100)
+    inteiro_str = _num_milhares(inteiro)
+    centavos_str = _extenso_ate_999(centavos) if centavos > 0 else ""
+    res = ""
+    if inteiro_str:
+        res += inteiro_str + (" real" if inteiro == 1 else " reais")
+    if centavos_str:
+        if res:
+            res += " e "
+        res += centavos_str + (" centavo" if centavos == 1 else " centavos")
+    return res or "zero"
+
+
+_HONORARIOS_INICIAIS_TEXTO = (
+    "O(A) CONTRATANTE pagará honorários iniciais destinados à análise técnica, "
+    "Levantamento bancário, organização documental e encaminhamento das medidas "
+    "judiciais e/ou extrajudiciais cabíveis relacionadas aos contratos/empréstimos "
+    "não reconhecidos, no importe de R$ {valor} ({extenso}). Ademais, O(A) CONTRATANTE "
+    "autoriza que referido valor seja compensado/descontado de eventual crédito, "
+    "prestação de contas, acordo ou alvará existente em seu favor junto ao CONTRATADO,"
+)
+
+
+def _texto_honorarios_iniciais(kit: Kit) -> str:
+    """Cláusula de honorários iniciais para o contrato. Vazio se não houver valor."""
+    valor = getattr(kit, "honorarios_iniciais", None)
+    if not valor or Decimal(valor) <= 0:
+        return ""
+    return _HONORARIOS_INICIAIS_TEXTO.format(
+        valor=_moeda_br(valor), extenso=_extenso_moeda(valor),
+    )
 
 
 def _banco_acao(a) -> str:
