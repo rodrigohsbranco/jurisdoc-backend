@@ -529,7 +529,7 @@ def _extenso_moeda(valor: Decimal) -> str:
 
 _HONORARIOS_INICIAIS_TEXTO = (
     "O(A) CONTRATANTE pagará honorários iniciais destinados à análise técnica, "
-    "Levantamento bancário, organização documental e encaminhamento das medidas "
+    "levantamento bancário, organização documental e encaminhamento das medidas "
     "judiciais e/ou extrajudiciais cabíveis relacionadas aos contratos/empréstimos "
     "não reconhecidos, no importe de R$ {valor} ({extenso}). Ademais, O(A) CONTRATANTE "
     "autoriza que referido valor seja compensado/descontado de eventual crédito, "
