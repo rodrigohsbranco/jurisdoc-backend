@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from permissoes.permissions import HasCapability
 
 from common.jinja_env import build_env
+from common.richtext import apply_richtext
 
 from .models import Template
 from .serializers import TemplateSerializer
@@ -465,7 +466,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 if full_path.exists():
                     context[img_key] = InlineImage(doc, str(full_path), width=Mm(80))
 
-            doc.render(context, jinja_env=env)
+            doc.render(apply_richtext(context), jinja_env=env)
 
             buf = BytesIO()
             doc.save(buf)
