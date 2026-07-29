@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from permissoes.permissions import HasCapability
 
 from common.jinja_env import build_env
+from common.bold_markers import aplicar_marcadores_negrito
 
 from .models import Template
 from .serializers import TemplateSerializer
@@ -466,6 +467,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
                     context[img_key] = InlineImage(doc, str(full_path), width=Mm(80))
 
             doc.render(context, jinja_env=env)
+            aplicar_marcadores_negrito(doc.docx)
 
             buf = BytesIO()
             doc.save(buf)
