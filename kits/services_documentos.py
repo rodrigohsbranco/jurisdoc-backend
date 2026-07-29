@@ -21,7 +21,6 @@ from templates_app.docx_jinja_normalizer import normalize_docx_jinja_runs
 from templates_app.docx_cleaner import strip_blank_pages
 from templates_app.docx_style_flattener import flatten_inherited_formatting
 from common.jinja_env import build_env
-from common.richtext import apply_richtext
 from .models import DocumentoKit, Kit
 
 try:
@@ -145,35 +144,6 @@ def _qualificar_advogado(adv: dict) -> str:
             f"pessoa jurídica de direito privado, inscrito no CNPJ sob o nº {escritorio_cnpj}"
         )
     return texto
-
-
-def _qualificar_advogado_segmentos(adv: dict) -> list[dict]:
-    """Igual a _qualificar_advogado, mas em pedaços com flag de negrito.
-
-    Negrito: nome, OAB, nome do escritório e CNPJ. Sem negrito: os conectivos.
-    Renderizado como RichText no docx (ver common.richtext.apply_richtext).
-    """
-    genero = adv.get("genero", "masculino")
-    inscrito = "inscrita" if genero == "feminino" else "inscrito"
-    segs: list[dict] = [
-        {"texto": adv.get("nome_completo", ""), "negrito": True},
-        {
-            "texto": f", {adv.get('nacionalidade', '')}, {adv.get('estado_civil', '')}, "
-                     f"advogado, {inscrito} na ",
-            "negrito": False,
-        },
-        {"texto": adv.get("numero_oab", ""), "negrito": True},
-    ]
-    escritorio_nome = adv.get("escritorio_nome", "")
-    escritorio_cnpj = adv.get("escritorio_cnpj", "")
-    if escritorio_nome:
-        segs += [
-            {"texto": ", neste ato representando o escritório ", "negrito": False},
-            {"texto": escritorio_nome, "negrito": True},
-            {"texto": ", pessoa jurídica de direito privado, inscrito no CNPJ sob o nº ", "negrito": False},
-            {"texto": escritorio_cnpj, "negrito": True},
-        ]
-    return segs
 
 
 def _build_telefone_text(c, is_masc: bool) -> str:
@@ -333,19 +303,7 @@ def build_kit_context(kit: Kit) -> dict:
             oab_eduardo = eduardo.get("numero_oab", _placeholder)
 
     if nao_socios:
-        # Negrito por trecho (nome/OAB/escritório/CNPJ) via RichText — ver
-        # common.richtext.apply_richtext, aplicado no render.
-        _segmentos: list[dict] = []
-        for _i, _a in enumerate(nao_socios):
-            if _i > 0:
-                _segmentos.append({"texto": "; e ", "negrito": False})
-            _segmentos.extend(_qualificar_advogado_segmentos(_a))
-        # Mantém a fonte do template (Cambria 12pt) — sem isso os trechos do
-        # RichText sairiam na fonte padrão do documento (Times New Roman 11).
-        for _s in _segmentos:
-            _s.setdefault("fonte", "Cambria")
-            _s.setdefault("tamanho", 24)
-        advogados_estado = {"__richtext__": _segmentos}
+        advogados_estado = "; e ".join(_qualificar_advogado(a) for a in nao_socios)
 
     # A unidade de apoio administrativo deve corresponder ao estado da ação
     # (UF do cliente), não a uma OAB resolvida por fallback (SC ou 1ª cadastrada).
@@ -895,7 +853,7 @@ def _render_template_to_docx(tpl: Template, context: dict) -> bytes:
         normalized_path = normalize_docx_jinja_runs(file_path)
         doc = DocxTemplate(str(normalized_path))
         env = build_env()
-        doc.render(apply_richtext(context), jinja_env=env)
+        doc.render(context, jinja_env=env)
         buf = BytesIO()
         doc.save(buf)
         buf.seek(0)
