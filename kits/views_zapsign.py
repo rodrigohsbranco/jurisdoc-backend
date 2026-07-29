@@ -169,9 +169,10 @@ class ZapSignWebhookView(APIView):
           - signed_file: URL do PDF assinado do documento principal
           - extra_docs[]: [{token, name, signed_file, ...}] para cada extra_doc
 
-        Os DocumentoKit são mapeados na mesma ordem em que foram enviados ao
-        ZapSign: order_by("tipo") — o principal (index 0) recebe signed_file,
-        os extras (index 1+) recebem extra_docs[i-1]["signed_file"].
+        O documento principal (index 0 em order_by("tipo")) recebe signed_file.
+        Os extra_docs são mapeados pelo campo "name" (que definimos como
+        get_tipo_display() no envio), independente da ordem em que o ZapSign
+        os retorna no webhook.
         """
         docs = list(
             kit.documentos
@@ -180,16 +181,47 @@ class ZapSignWebhookView(APIView):
         )
         cliente_slug = slug_nome_cliente(kit.cliente.nome_completo or "")
 
-        # Monta pares (DocumentoKit, url_signed) na ordem de envio
+        # Monta pares (DocumentoKit, url_signed)
         pares: list[tuple] = []
+
+        # Documento principal → sempre docs[0] (mesmo que enviamos como principal)
         if signed_file and docs:
             pares.append((docs[0], signed_file))
-        for i, extra in enumerate(extra_docs or []):
-            idx = i + 1
-            if idx < len(docs):
-                url = extra.get("signed_file")
-                if url:
-                    pares.append((docs[idx], url))
+
+        # Extra docs → mapeia por name (tipo_display) para não depender da ordem do ZapSign
+        tipo_display_map = {doc.get_tipo_display(): doc for doc in docs[1:]}
+        matched_by_name = False
+
+        for extra in extra_docs or []:
+            url = extra.get("signed_file")
+            if not url:
+                continue
+            name = extra.get("name", "")
+            doc = tipo_display_map.get(name)
+            if doc:
+                pares.append((doc, url))
+                matched_by_name = True
+            else:
+                logger.warning(
+                    f"Kit #{kit.id}: extra_doc name='{name}' não corresponde a "
+                    f"nenhum DocumentoKit — esperados: {list(tipo_display_map.keys())}"
+                )
+
+        # Fallback posicional se ZapSign não retornou name nos extra_docs
+        if extra_docs and not matched_by_name:
+            logger.warning(
+                f"Kit #{kit.id}: name-matching não funcionou — usando mapeamento posicional "
+                f"(ZapSign pode não ter retornado o campo 'name' nos extra_docs)"
+            )
+            pares = []
+            if signed_file and docs:
+                pares.append((docs[0], signed_file))
+            for i, extra in enumerate(extra_docs or []):
+                idx = i + 1
+                if idx < len(docs):
+                    url = extra.get("signed_file")
+                    if url:
+                        pares.append((docs[idx], url))
 
         logger.info(
             f"Kit #{kit.id}: bundle assinado — {len(pares)} PDF(s) disponível(is) "
