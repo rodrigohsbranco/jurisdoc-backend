@@ -21,6 +21,7 @@ from templates_app.docx_jinja_normalizer import normalize_docx_jinja_runs
 from templates_app.docx_cleaner import strip_blank_pages
 from templates_app.docx_style_flattener import flatten_inherited_formatting
 from common.jinja_env import build_env
+from common.bold_markers import aplicar_marcadores_negrito, marcar_negrito
 from .models import DocumentoKit, Kit
 
 try:
@@ -142,6 +143,27 @@ def _qualificar_advogado(adv: dict) -> str:
         texto += (
             f", neste ato representando o escritório {escritorio_nome}, "
             f"pessoa jurídica de direito privado, inscrito no CNPJ sob o nº {escritorio_cnpj}"
+        )
+    return texto
+
+
+def _qualificar_advogado_marcado(adv: dict) -> str:
+    """Igual a _qualificar_advogado, mas com marcadores de negrito no nome, OAB,
+    escritório e CNPJ (aplicados no render por aplicar_marcadores_negrito)."""
+    genero = adv.get("genero", "masculino")
+    inscrito = "inscrita" if genero == "feminino" else "inscrito"
+    texto = (
+        f"{marcar_negrito(adv.get('nome_completo', ''))}, "
+        f"{adv.get('nacionalidade', '')}, "
+        f"{adv.get('estado_civil', '')}, "
+        f"advogado, {inscrito} na {marcar_negrito(adv.get('numero_oab', ''))}"
+    )
+    escritorio_nome = adv.get("escritorio_nome", "")
+    escritorio_cnpj = adv.get("escritorio_cnpj", "")
+    if escritorio_nome:
+        texto += (
+            f", neste ato representando o escritório {marcar_negrito(escritorio_nome)}, "
+            f"pessoa jurídica de direito privado, inscrito no CNPJ sob o nº {marcar_negrito(escritorio_cnpj)}"
         )
     return texto
 
@@ -303,7 +325,7 @@ def build_kit_context(kit: Kit) -> dict:
             oab_eduardo = eduardo.get("numero_oab", _placeholder)
 
     if nao_socios:
-        advogados_estado = "; e ".join(_qualificar_advogado(a) for a in nao_socios)
+        advogados_estado = "; e ".join(_qualificar_advogado_marcado(a) for a in nao_socios)
 
     # A unidade de apoio administrativo deve corresponder ao estado da ação
     # (UF do cliente), não a uma OAB resolvida por fallback (SC ou 1ª cadastrada).
@@ -529,7 +551,7 @@ def _extenso_moeda(valor: Decimal) -> str:
 
 _HONORARIOS_INICIAIS_TEXTO = (
     "O(A) CONTRATANTE pagará honorários iniciais destinados à análise técnica, "
-    "Levantamento bancário, organização documental e encaminhamento das medidas "
+    "levantamento bancário, organização documental e encaminhamento das medidas "
     "judiciais e/ou extrajudiciais cabíveis relacionadas aos contratos/empréstimos "
     "não reconhecidos, no importe de R$ {valor} ({extenso}). Ademais, O(A) CONTRATANTE "
     "autoriza que referido valor seja compensado/descontado de eventual crédito, "
@@ -854,6 +876,7 @@ def _render_template_to_docx(tpl: Template, context: dict) -> bytes:
         doc = DocxTemplate(str(normalized_path))
         env = build_env()
         doc.render(context, jinja_env=env)
+        aplicar_marcadores_negrito(doc.docx)
         buf = BytesIO()
         doc.save(buf)
         buf.seek(0)
