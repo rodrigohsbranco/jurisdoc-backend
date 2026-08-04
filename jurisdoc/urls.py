@@ -27,6 +27,8 @@ urlpatterns = [
     path("api/zapsign/", include("kits.urls_zapsign")),
     path("api/maps/", include("kits.urls_maps")),
     path("api/", include("contracts.urls")),
+    # Portal público de assinatura (link único entregue ao cliente)
+    path("", include("kits.urls_portal")),
     # Serve media files via Django (funciona em produção e desenvolvimento)
     re_path(r"^media/(?P<path>.*)$", serve, {"document_root": settings.MEDIA_ROOT}),
 ]

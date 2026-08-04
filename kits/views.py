@@ -317,7 +317,10 @@ class KitViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="enviar-para-assinatura")
     def enviar_para_assinatura(self, request, pk=None):
-        """Envia todos os documentos do kit ao ZapSign como bundle (extra_docs).
+        """Envia cada documento do kit ao ZapSign como documento separado.
+
+        Cada documento é assinado individualmente pelo cliente; o link retornado
+        é o do portal do JurisDoc, que conduz de um documento ao próximo.
 
         Body (opcional):
           nivel: "basico" | "medio" | "avancado"  (padrão: "basico")
@@ -327,13 +330,14 @@ class KitViewSet(viewsets.ModelViewSet):
         Retorna:
           {
             "status": str,
-            "sign_url": str,   ← link único de assinatura para o cliente
+            "sign_url": str,   ← link único do portal de assinatura
             "documentos": [{"tipo": str, "tipo_display": str}],
             "reutilizado": bool
           }
 
         Auto-finaliza o kit se necessário. Gera DocumentoKit server-side se ainda não existirem.
         """
+        from .services_zapsign import base_url_from_request as _base_url
         from .services_zapsign import enviar_para_assinatura as _enviar
 
         kit = self.get_object()
@@ -389,7 +393,7 @@ class KitViewSet(viewsets.ModelViewSet):
                 )
 
         try:
-            result = _enviar(kit, config)
+            result = _enviar(kit, config, base_url=_base_url(request))
         except RuntimeError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 

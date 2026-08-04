@@ -184,6 +184,11 @@ APP_INTEGRATION_SECRET = os.getenv("APP_INTEGRATION_SECRET", SECRET_KEY)
 # Token da API ZapSign (assinatura eletrônica). Defina ZAPSIGN_API_TOKEN no .env / EasyPanel.
 ZAPSIGN_API_TOKEN = os.getenv("ZAPSIGN_API_TOKEN", "")
 
+# Origem pública deste backend (sem barra final). Usada para montar o link do
+# portal de assinatura entregue ao cliente e o redirect_link enviado ao ZapSign.
+# Quando vazio, o link é derivado do request que originou o envio.
+PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "")
+
 # Google Places API (autocomplete de endereço via proxy do backend).
 # A mesma chave do front pode ser usada aqui. Como ela é restrita por HTTP
 # referrer, o backend envia GOOGLE_MAPS_PLACES_REFERER (um referrer permitido

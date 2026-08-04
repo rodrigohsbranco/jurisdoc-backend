@@ -1,4 +1,12 @@
-"""Webhook público para receber notificações de eventos do ZapSign."""
+"""Webhook público para receber notificações de eventos do ZapSign.
+
+Fluxo atual: um documento ZapSign por DocumentoKit — o webhook chega uma vez por
+documento e é localizado por DocumentoKit.zapsign_doc_token (_handle_signed).
+
+Fluxo legado (bundle extra_docs): um único evento para o envelope inteiro,
+localizado por Kit.zapsign_doc_token (_handle_signed_bundle). Mantido para os
+kits enviados antes da migração para assinatura individual.
+"""
 import json
 import logging
 
@@ -11,7 +19,7 @@ from rest_framework.views import APIView
 
 from .models import DocumentoKit, Kit
 from .services_documentos import slug_nome_cliente
-from .services_zapsign import baixar_arquivo_assinado
+from .services_zapsign import baixar_arquivo_assinado, invalidar_cache_status
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +131,7 @@ class ZapSignWebhookView(APIView):
         """Atualiza status do documento e baixa PDF assinado."""
         doc_kit.zapsign_status = "signed"
         doc_kit.save(update_fields=["zapsign_status"])
+        invalidar_cache_status(doc_kit.zapsign_doc_token)
 
         kit = doc_kit.kit
         logger.info(f"Kit #{kit.id} — {doc_kit.tipo}: marcado como assinado")

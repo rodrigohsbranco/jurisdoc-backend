@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Assinatura de documentos</title>
+  <style>
+    :root {
+      --azul: #0F2B46;
+      --dourado: #CDA660;
+      --texto: #1c2733;
+      --cinza: #6b7785;
+      --borda: #e3e7ec;
+      --fundo: #f4f6f8;
+      --verde: #1e8e5a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 24px 16px 48px;
+      background: var(--fundo);
+      color: var(--texto);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      line-height: 1.5;
+    }
+    .wrap { max-width: 560px; margin: 0 auto; }
+    .card {
+      background: #fff;
+      border: 1px solid var(--borda);
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 1px 3px rgba(15, 43, 70, .06);
+    }
+    .topo { border-top: 4px solid var(--dourado); }
+    h1 { font-size: 20px; margin: 0 0 4px; color: var(--azul); }
+    .cliente { font-size: 15px; color: var(--cinza); margin: 0 0 20px; }
+    .aviso {
+      background: #f7f9fb;
+      border-left: 3px solid var(--azul);
+      border-radius: 4px;
+      padding: 12px 14px;
+      font-size: 14px;
+      color: var(--cinza);
+      margin: 0 0 20px;
+    }
+    .progresso { font-size: 14px; color: var(--cinza); margin: 0 0 8px; }
+    .barra { height: 6px; background: var(--borda); border-radius: 99px; overflow: hidden; margin-bottom: 24px; }
+    .barra > span { display: block; height: 100%; background: var(--dourado); }
+    .btn {
+      display: block;
+      width: 100%;
+      background: var(--azul);
+      color: #fff;
+      text-decoration: none;
+      text-align: center;
+      font-size: 16px;
+      font-weight: 600;
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+    }
+    .btn:hover { background: #163a5e; }
+    .btn-legenda { font-size: 13px; color: var(--cinza); text-align: center; margin: 0 0 24px; }
+    ul.docs { list-style: none; margin: 0; padding: 0; }
+    ul.docs li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 0;
+      border-bottom: 1px solid var(--borda);
+      font-size: 15px;
+    }
+    ul.docs li:last-child { border-bottom: 0; }
+    .titulo-doc { flex: 1; min-width: 0; }
+    .chip {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 99px;
+      white-space: nowrap;
+    }
+    .chip-ok { background: #e6f4ec; color: var(--verde); }
+    .chip-pend { background: #fdf3e0; color: #8a6212; }
+    .link-assinar { font-size: 14px; font-weight: 600; color: var(--azul); text-decoration: none; white-space: nowrap; }
+    .concluido { text-align: center; padding: 8px 0 4px; }
+    .concluido .selo { font-size: 40px; line-height: 1; }
+    .concluido h2 { font-size: 18px; color: var(--verde); margin: 12px 0 4px; }
+    .concluido p { color: var(--cinza); font-size: 14px; margin: 0; }
+    .rodape { text-align: center; font-size: 12px; color: var(--cinza); margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card topo">
+      <h1>Assinatura de documentos</h1>
+      <p class="cliente">{{ cliente_nome }}</p>
+
+      {% if concluido %}
+        <div class="concluido">
+          <div class="selo">✓</div>
+          <h2>Todos os documentos foram assinados</h2>
+          <p>Não é necessária nenhuma outra ação. Você pode fechar esta página.</p>
+        </div>
+      {% elif proximo %}
+        <p class="aviso">
+          Cada documento é assinado separadamente. Ao concluir uma assinatura,
+          você volta para esta página para seguir ao próximo documento.
+        </p>
+
+        <p class="progresso">{{ assinados }} de {{ total }} documento{{ total|pluralize:"s" }} assinado{{ assinados|pluralize:"s" }}</p>
+        <div class="barra"><span style="width: {% widthratio assinados total 100 %}%"></span></div>
+
+        <a class="btn" href="{{ proximo.sign_url }}">Assinar agora</a>
+        <p class="btn-legenda">Próximo: {{ proximo.titulo }}</p>
+      {% else %}
+        <p class="aviso">
+          Os documentos ainda estão sendo preparados. Atualize esta página em
+          alguns instantes ou entre em contato com o escritório.
+        </p>
+      {% endif %}
+
+      {% if documentos %}
+        <ul class="docs">
+          {% for doc in documentos %}
+            <li>
+              <span class="titulo-doc">{{ doc.titulo }}</span>
+              {% if doc.assinado %}
+                <span class="chip chip-ok">Assinado</span>
+              {% elif doc.sign_url %}
+                <span class="chip chip-pend">Pendente</span>
+                <a class="link-assinar" href="{{ doc.sign_url }}">Assinar</a>
+              {% else %}
+                <span class="chip chip-pend">Aguardando</span>
+              {% endif %}
+            </li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+    </div>
+    <p class="rodape">Assinatura eletrônica processada pela ZapSign.</p>
+  </div>
+</body>
+</html>

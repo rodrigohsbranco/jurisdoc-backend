@@ -70,9 +70,19 @@ class Kit(models.Model):
     notificacao_enviada_em = models.DateTimeField(null=True, blank=True)
 
     # Integração ZapSign — assinatura eletrônica
+    # zapsign_doc_token: usado apenas pelo fluxo antigo de bundle (extra_docs).
+    # No fluxo atual cada DocumentoKit tem seu próprio documento no ZapSign e
+    # zapsign_sign_url guarda a URL do portal de assinatura do JurisDoc.
     zapsign_doc_token = models.CharField(max_length=100, null=True, blank=True, db_index=True)
     zapsign_sign_url = models.URLField(max_length=500, null=True, blank=True)
     zapsign_status = models.CharField(max_length=20, null=True, blank=True)
+    zapsign_portal_token = models.UUIDField(
+        null=True,
+        blank=True,
+        unique=True,
+        editable=False,
+        help_text="Token público do portal de assinatura (/assinar/<token>/).",
+    )
 
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
