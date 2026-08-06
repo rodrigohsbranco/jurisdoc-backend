@@ -49,6 +49,7 @@ class ClienteViewSet(viewsets.ModelViewSet):
             "remove_foto_residencia": "clientes.editar",
             "upload_foto_cliente": "clientes.editar",
             "remove_foto_cliente": "clientes.editar",
+            "extrair_documentos_ia": "clientes.editar",
         })]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ClienteFilter
@@ -552,6 +553,66 @@ class ClienteViewSet(viewsets.ModelViewSet):
         instance.foto_cliente = None
         instance.save(update_fields=["foto_cliente"])
         return response.Response({"foto_cliente": None}, status=status.HTTP_200_OK)
+
+    # ── Leitura de documentos por IA ──
+
+    IA_CAMPO_POR_TIPO = {
+        "identidade": ("documentos_pessoais", "documento pessoal"),
+        "comprovante_residencia": ("comprovantes_residencia", "comprovante de residência"),
+    }
+
+    @decorators.action(detail=True, methods=["post"], url_path="ia/extrair-documentos")
+    def extrair_documentos_ia(self, request, pk=None):
+        """Lê por IA os documentos já enviados do cliente e devolve os campos extraídos.
+
+        Body: {"tipo": "identidade" | "comprovante_residencia"}
+
+        Não grava nada no cliente — o operador revisa os dados no formulário e
+        salva normalmente. O preenchimento manual continua funcionando igual.
+        """
+        from .services_ia import ExtracaoIAError, extrair_dados
+
+        instance = self.get_object()
+        tipo = str(request.data.get("tipo") or "").strip()
+
+        config = self.IA_CAMPO_POR_TIPO.get(tipo)
+        if config is None:
+            return response.Response(
+                {"detail": "Informe 'tipo' como 'identidade' ou 'comprovante_residencia'."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        campo, rotulo = config
+        docs = list(getattr(instance, campo, None) or [])
+        if not docs:
+            return response.Response(
+                {"detail": f"Envie ao menos um {rotulo} antes de usar a leitura por IA."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        arquivos = []
+        for doc in docs:
+            path = doc.get("path")
+            if not path or not default_storage.exists(path):
+                continue
+            try:
+                with default_storage.open(path, "rb") as fh:
+                    arquivos.append((doc.get("name") or os.path.basename(path), fh.read()))
+            except OSError:
+                continue
+
+        if not arquivos:
+            return response.Response(
+                {"detail": f"Nenhum arquivo de {rotulo} pôde ser lido. Reenvie os documentos."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        try:
+            resultado = extrair_dados(arquivos, tipo)
+        except ExtracaoIAError as exc:
+            return response.Response({"detail": exc.mensagem}, status=exc.status_code)
+
+        return response.Response(resultado, status=status.HTTP_200_OK)
 
     @staticmethod
     def _docs_with_urls(docs, request):

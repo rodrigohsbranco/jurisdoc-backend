@@ -189,6 +189,27 @@ ZAPSIGN_API_TOKEN = os.getenv("ZAPSIGN_API_TOKEN", "")
 # Quando vazio, o link é derivado do request que originou o envio.
 PUBLIC_BASE_URL = os.getenv("PUBLIC_BASE_URL", "")
 
+# Máquinas com inspeção de TLS (antivírus/proxy corporativo) fazem o Python
+# recusar certificados válidos — a CA da interceptação está no repositório do
+# Windows, não no bundle do certifi. `truststore` passa a usar o repositório do
+# SO (não desliga a validação). Opt-in, para não alterar o comportamento em
+# produção: defina USE_SYSTEM_CERTS=1 e instale `truststore` no ambiente local.
+if os.getenv("USE_SYSTEM_CERTS", "0") == "1":
+    try:
+        import truststore
+
+        truststore.inject_into_ssl()
+    except ImportError:
+        pass
+
+# --- OpenAI (leitura de documentos do cliente por IA) ---
+# Sem OPENAI_API_KEY o endpoint responde 503 e o preenchimento manual segue normal.
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+# Comprovantes de residência: texto corrido, o mini resolve bem e é ~10x mais barato.
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+# RG/CNH: layout denso e texto miúdo — o mini erra sistematicamente aqui.
+OPENAI_MODEL_IDENTIDADE = os.getenv("OPENAI_MODEL_IDENTIDADE", "gpt-4o")
+
 # Google Places API (autocomplete de endereço via proxy do backend).
 # A mesma chave do front pode ser usada aqui. Como ela é restrita por HTTP
 # referrer, o backend envia GOOGLE_MAPS_PLACES_REFERER (um referrer permitido

@@ -2,3 +2,8 @@
 __pycache__
 media/
 .DS_Store
+
+# Segredos — nunca versionar (use .env.example como modelo)
+.env
+.env.local
+.env.*.local
