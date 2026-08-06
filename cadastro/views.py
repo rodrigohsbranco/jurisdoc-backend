@@ -50,6 +50,8 @@ class ClienteViewSet(viewsets.ModelViewSet):
             "upload_foto_cliente": "clientes.editar",
             "remove_foto_cliente": "clientes.editar",
             "extrair_documentos_ia": "clientes.editar",
+            # Leitura no cadastro de cliente novo — só faz sentido para quem pode criar
+            "extrair_documentos_ia_upload": "clientes.criar",
         })]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = ClienteFilter
@@ -560,6 +562,45 @@ class ClienteViewSet(viewsets.ModelViewSet):
         "identidade": ("documentos_pessoais", "documento pessoal"),
         "comprovante_residencia": ("comprovantes_residencia", "comprovante de residência"),
     }
+
+    @decorators.action(
+        detail=False,
+        methods=["post"],
+        url_path="ia/extrair-documentos",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def extrair_documentos_ia_upload(self, request):
+        """Lê por IA documentos enviados na hora, sem cliente cadastrado ainda.
+
+        multipart/form-data: tipo + files[]
+
+        Usado no cadastro de um cliente novo, onde ainda não há registro para
+        anexar os arquivos. Nada é gravado — os arquivos servem só para a leitura.
+        """
+        from .services_ia import ExtracaoIAError, extrair_dados
+
+        tipo = str(request.data.get("tipo") or "").strip()
+        if tipo not in self.IA_CAMPO_POR_TIPO:
+            return response.Response(
+                {"detail": "Informe 'tipo' como 'identidade' ou 'comprovante_residencia'."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        files = request.FILES.getlist("files")
+        if not files:
+            return response.Response(
+                {"detail": "Selecione ao menos um arquivo para a leitura por IA."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        arquivos = [(f.name, f.read()) for f in files]
+
+        try:
+            resultado = extrair_dados(arquivos, tipo)
+        except ExtracaoIAError as exc:
+            return response.Response({"detail": exc.mensagem}, status=exc.status_code)
+
+        return response.Response(resultado, status=status.HTTP_200_OK)
 
     @decorators.action(detail=True, methods=["post"], url_path="ia/extrair-documentos")
     def extrair_documentos_ia(self, request, pk=None):
