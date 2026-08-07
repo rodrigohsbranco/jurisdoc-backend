@@ -11,6 +11,26 @@ class User(AbstractUser):
     endereco = models.JSONField(blank=True, default=dict)
     avatar = models.ImageField(upload_to="avatars/", blank=True, null=True)
     is_admin = models.BooleanField(default=True)
+
+    # Acesso ao app FlowALR (SSO): quando ligado, este usuário pode entrar no app
+    # com as MESMAS credenciais do JurisDoc — o app valida a senha aqui, via
+    # POST /api/app/auth/validar-credenciais/, e não guarda senha própria.
+    # Exige is_admin=True; conceder é ação auditada (ver accounts/serializers.py).
+    acesso_app = models.BooleanField(
+        default=False,
+        db_index=True,
+        help_text="Permite login no app FlowALR com as credenciais do JurisDoc.",
+    )
+    acesso_app_liberado_em = models.DateTimeField(null=True, blank=True, editable=False)
+    acesso_app_liberado_por = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        editable=False,
+        related_name="acessos_app_concedidos",
+    )
+
     permissao = models.ForeignKey(
         "permissoes.Permissao",
         on_delete=models.SET_NULL,

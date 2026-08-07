@@ -128,6 +128,11 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "DEFAULT_PAGINATION_CLASS": "jurisdoc.pagination.DefaultPagination",
     "PAGE_SIZE": 20,
+    # Não liga throttling global — só fornece a taxa para os throttles que a
+    # declaram. "app_login": tentativas de login do app FlowALR, por username.
+    "DEFAULT_THROTTLE_RATES": {
+        "app_login": "10/min",
+    },
 }
 
 # --- JWT ---

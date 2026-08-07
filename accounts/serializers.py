@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -31,10 +32,13 @@ class UserSerializer(serializers.ModelSerializer):
             "first_name", "last_name",  # legados (mantidos pra compat)
             "nome_completo", "email", "telefone", "endereco", "avatar",
             "is_admin", "is_active",
+            "acesso_app", "acesso_app_liberado_em",
             "permissao", "permissao_detalhe", "capacidades",
             "password",
         ]
-        read_only_fields = ["id", "permissao_detalhe", "capacidades"]
+        read_only_fields = [
+            "id", "permissao_detalhe", "capacidades", "acesso_app_liberado_em",
+        ]
 
     def get_capacidades(self, obj) -> list[str]:
         codigos = set()
@@ -44,9 +48,32 @@ class UserSerializer(serializers.ModelSerializer):
         codigos |= set(obj.capacidades_diretas.values_list("codigo", flat=True))
         return sorted(codigos)
 
+    def _quem_solicitou(self):
+        request = self.context.get("request")
+        usuario = getattr(request, "user", None)
+        return usuario if getattr(usuario, "pk", None) else None
+
+    def validate(self, attrs):
+        """Acesso ao app é privilégio de administrador — nunca liberar sem isso.
+
+        Só barra quando a requisição está LIGANDO o marcador para alguém que não
+        será admin. Quando o marcador não vem na requisição, `update` cuida de
+        revogá-lo caso o usuário perca o admin.
+        """
+        if attrs.get("acesso_app"):
+            is_admin = attrs.get(
+                "is_admin", getattr(self.instance, "is_admin", False)
+            )
+            if not is_admin:
+                raise serializers.ValidationError(
+                    {"acesso_app": "Só usuários administradores podem ter acesso ao app FlowALR."}
+                )
+        return attrs
+
     def create(self, validated_data):
         password = validated_data.pop("password", None)
         is_admin = bool(validated_data.pop("is_admin", False))  # default seguro
+        acesso_app = bool(validated_data.pop("acesso_app", False))
 
         if not password:
             raise serializers.ValidationError(
@@ -56,6 +83,10 @@ class UserSerializer(serializers.ModelSerializer):
         user = User(**validated_data)
         user.is_admin = is_admin
         user.is_staff = is_admin  # staff para acessar /admin se for admin
+        user.acesso_app = acesso_app
+        if acesso_app:
+            user.acesso_app_liberado_em = timezone.now()
+            user.acesso_app_liberado_por = self._quem_solicitou()
         user.set_password(password)
         user.save()
         return user
@@ -64,6 +95,7 @@ class UserSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         new_password = validated_data.pop("password", None)
         new_is_admin = validated_data.pop("is_admin", None)
+        novo_acesso_app = validated_data.pop("acesso_app", None)
 
         # atualiza campos "normais" (inclui permissao por FK)
         for attr, value in validated_data.items():
@@ -83,6 +115,23 @@ class UserSerializer(serializers.ModelSerializer):
         if new_is_admin is not None:
             instance.is_admin = bool(new_is_admin)
             instance.is_staff = bool(new_is_admin)
+
+        # Acesso ao app: audita quem liberou e quando; revoga junto com o admin
+        if novo_acesso_app is not None:
+            novo_acesso_app = bool(novo_acesso_app)
+            if novo_acesso_app and not instance.acesso_app:
+                instance.acesso_app_liberado_em = timezone.now()
+                instance.acesso_app_liberado_por = self._quem_solicitou()
+            elif not novo_acesso_app:
+                instance.acesso_app_liberado_em = None
+                instance.acesso_app_liberado_por = None
+            instance.acesso_app = novo_acesso_app
+
+        if instance.acesso_app and not instance.is_admin:
+            # Perdeu o admin (nesta ou em outra requisição): o acesso ao app cai junto
+            instance.acesso_app = False
+            instance.acesso_app_liberado_em = None
+            instance.acesso_app_liberado_por = None
 
         if new_password:
             instance.set_password(new_password)
