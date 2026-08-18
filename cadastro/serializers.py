@@ -123,11 +123,13 @@ class ClienteSerializer(serializers.ModelSerializer):
             "beneficios",
             # Status
             "is_active",
+            # Origem do cadastro (jurisdoc | app_cliente)
+            "origem",
             # Auditoria
             "criado_em",
             "atualizado_em",
         ]
-        read_only_fields = ["criado_em", "atualizado_em"]
+        read_only_fields = ["criado_em", "atualizado_em", "origem"]
         extra_kwargs = {
             "cpf": {"validators": []}  # Remove validadores padrão de unicidade
         }

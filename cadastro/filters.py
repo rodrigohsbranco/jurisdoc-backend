@@ -43,6 +43,8 @@ class ClienteFilter(df.FilterSet):
             "se_crianca_adolescente",
             "estado_civil",
             "is_active",
+            # "app_cliente" isola os pré-cadastros feitos pelo próprio cliente
+            "origem",
         ]
 
     def filter_cpf(self, queryset, name, value):

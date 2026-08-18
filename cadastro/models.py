@@ -142,6 +142,19 @@ class Cliente(models.Model):
     # Status (soft delete)
     is_active = models.BooleanField(default=True, db_index=True)
 
+    # Origem do cadastro — distingue quem o escritório cadastrou de quem se
+    # cadastrou sozinho pelo app (pré-cadastro), para o operador filtrar.
+    ORIGEM_CHOICES = [
+        ("jurisdoc", "JurisDoc"),
+        ("app_cliente", "Pré-cadastro pelo app"),
+    ]
+    origem = models.CharField(
+        max_length=15,
+        choices=ORIGEM_CHOICES,
+        default="jurisdoc",
+        db_index=True,
+    )
+
     # Auditoria
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
@@ -157,6 +170,52 @@ class Cliente(models.Model):
 
     def __str__(self):
         return f"{self.nome_completo} ({self.cpf})"
+
+
+class ContaClienteApp(models.Model):
+    """Credencial do CLIENTE FINAL para o app FlowALR.
+
+    Deliberadamente separada de `accounts.User`: aquele model é a identidade da
+    equipe (is_admin, permissões, capacidades) e autentica o SPA do JurisDoc.
+    Cliente final nunca deve trafegar por lá.
+
+    O acesso é sempre resolvido a partir desta conta — o cliente só enxerga o
+    próprio `cliente`, nunca um id vindo da requisição.
+    """
+
+    cliente = models.OneToOneField(
+        Cliente,
+        on_delete=models.CASCADE,
+        related_name="conta_app",
+    )
+    email = models.EmailField(unique=True, db_index=True)
+    senha_hash = models.CharField(max_length=256)
+    is_active = models.BooleanField(default=True, db_index=True)
+
+    # Auditoria — o vínculo a uma ficha que o escritório já tinha é o evento
+    # sensível deste fluxo; fica registrado para auditoria posterior.
+    vinculada_a_ficha_existente = models.BooleanField(default=False)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    ultimo_login_em = models.DateTimeField(null=True, blank=True)
+    senha_alterada_em = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Conta de cliente no app"
+        verbose_name_plural = "Contas de clientes no app"
+        ordering = ["-criado_em"]
+
+    def __str__(self):
+        return f"{self.email} → {self.cliente.nome_completo}"
+
+    def set_senha(self, senha_bruta: str) -> None:
+        from django.contrib.auth.hashers import make_password
+
+        self.senha_hash = make_password(senha_bruta)
+
+    def checar_senha(self, senha_bruta: str) -> bool:
+        from django.contrib.auth.hashers import check_password
+
+        return check_password(senha_bruta, self.senha_hash)
 
 
 TIPO_CONTA_CHOICES = [

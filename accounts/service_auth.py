@@ -19,6 +19,13 @@ from rest_framework import authentication, exceptions, permissions
 SERVICE_TOKEN_TYPE = "service_client"
 SERVICE_TOKEN_LIFETIME = timedelta(hours=1)
 
+# Token do CLIENTE FINAL no app (área "Sou cliente"). Vida mais longa que o de
+# serviço porque o cliente preenche um formulário extenso e o app não guarda a
+# senha para renovar sozinho. A revogação não depende do prazo: a conta é
+# recarregada do banco a cada requisição (ver ClienteAppAuthentication).
+CLIENTE_TOKEN_TYPE = "cliente_app"
+CLIENTE_TOKEN_LIFETIME = timedelta(hours=12)
+
 _SECRET: str = getattr(settings, "APP_INTEGRATION_SECRET", settings.SECRET_KEY)
 _ALGORITHM = "HS256"
 
@@ -116,6 +123,93 @@ class IsServiceClient(permissions.BasePermission):
 
     def has_permission(self, request, view) -> bool:
         return isinstance(getattr(request, "user", None), ServiceClientPrincipal)
+
+
+# ---------------------------------------------------------------------------
+# Cliente final (área "Sou cliente" do app)
+# ---------------------------------------------------------------------------
+
+class ClienteAppPrincipal:
+    """Identidade de um cliente final autenticado no app.
+
+    Carrega a conta e o cliente já resolvidos do banco — as views nunca aceitam
+    um id de cliente vindo da requisição, sempre usam `principal.cliente`.
+    """
+
+    is_authenticated: bool = True
+    is_anonymous: bool = False
+    pk = None
+
+    def __init__(self, conta) -> None:
+        self.conta = conta
+        self.cliente = conta.cliente
+
+    def __str__(self) -> str:
+        return f"ClienteApp:{self.conta.email}"
+
+
+def issue_cliente_token(conta_id: int) -> tuple[str, int]:
+    """Emite o token de sessão do cliente. Retorna (token, segundos_de_validade)."""
+    now = datetime.now(tz=timezone.utc)
+    payload = {
+        "type": CLIENTE_TOKEN_TYPE,
+        "conta_id": conta_id,
+        "iat": now,
+        "exp": now + CLIENTE_TOKEN_LIFETIME,
+    }
+    token = jwt.encode(payload, _SECRET, algorithm=_ALGORITHM)
+    return token, int(CLIENTE_TOKEN_LIFETIME.total_seconds())
+
+
+class ClienteAppAuthentication(authentication.BaseAuthentication):
+    """Autentica o token de sessão do cliente final.
+
+    Recarrega a conta do banco a cada requisição: desativar a conta ou o cliente
+    corta o acesso na hora, sem esperar o token expirar.
+    """
+
+    def authenticate(self, request):
+        header = authentication.get_authorization_header(request).split()
+
+        if not header or header[0].lower() != b"bearer":
+            return None
+        if len(header) != 2:
+            raise exceptions.AuthenticationFailed("Formato de Authorization inválido.")
+
+        try:
+            payload = jwt.decode(header[1], _SECRET, algorithms=[_ALGORITHM])
+        except jwt.ExpiredSignatureError:
+            raise exceptions.AuthenticationFailed("Sessão expirada. Entre novamente.")
+        except jwt.InvalidTokenError:
+            return None
+
+        if payload.get("type") != CLIENTE_TOKEN_TYPE:
+            return None  # outro tipo de token — deixa o próximo authenticator tentar
+
+        from cadastro.models import ContaClienteApp
+
+        conta = (
+            ContaClienteApp.objects
+            .select_related("cliente")
+            .filter(pk=payload.get("conta_id"), is_active=True, cliente__is_active=True)
+            .first()
+        )
+        if conta is None:
+            raise exceptions.AuthenticationFailed("Acesso revogado. Procure o escritório.")
+
+        return ClienteAppPrincipal(conta), payload
+
+    def authenticate_header(self, request) -> str:
+        return "Bearer"
+
+
+class IsClienteApp(permissions.BasePermission):
+    """Acesso restrito ao cliente final autenticado pelo app."""
+
+    message = "Acesso restrito ao cliente autenticado no app."
+
+    def has_permission(self, request, view) -> bool:
+        return isinstance(getattr(request, "user", None), ClienteAppPrincipal)
 
 
 class IsServiceAdmin(permissions.BasePermission):

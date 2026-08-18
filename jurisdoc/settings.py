@@ -132,6 +132,10 @@ REST_FRAMEWORK = {
     # declaram. "app_login": tentativas de login do app FlowALR, por username.
     "DEFAULT_THROTTLE_RATES": {
         "app_login": "10/min",
+        # Área "Sou cliente" do app — chaveados por CPF/e-mail, não por IP
+        "cliente_app_registro": "5/min",
+        "cliente_app_login": "10/min",
+        "cliente_app_senha": "5/min",
     },
 }
 
