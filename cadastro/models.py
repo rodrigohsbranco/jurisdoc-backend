@@ -183,13 +183,34 @@ class ContaClienteApp(models.Model):
     próprio `cliente`, nunca um id vindo da requisição.
     """
 
+    # Nulo enquanto o cliente ainda não preencheu o cadastro: no login por
+    # WhatsApp a conta nasce só com o telefone, e a ficha (que exige CPF único)
+    # só é criada quando ele salva os dados.
     cliente = models.OneToOneField(
         Cliente,
         on_delete=models.CASCADE,
         related_name="conta_app",
+        null=True,
+        blank=True,
     )
-    email = models.EmailField(unique=True, db_index=True)
-    senha_hash = models.CharField(max_length=256)
+
+    # Identidade principal: número no formato internacional só com dígitos
+    # (ex.: 5548999999999), derivado do jid devolvido pelo /chat/check do uazapi
+    # — é o que normaliza a variação do nono dígito.
+    telefone = models.CharField(
+        max_length=20, unique=True, null=True, blank=True, db_index=True
+    )
+    whatsapp_jid = models.CharField(max_length=60, blank=True, default="")
+
+    # Acesso alternativo (plano B quando o WhatsApp falha). Opcionais: só existem
+    # se o cliente cadastrar. Não são mais a porta de entrada padrão.
+    email = models.EmailField(unique=True, null=True, blank=True, db_index=True)
+    senha_hash = models.CharField(max_length=256, blank=True, default="")
+
+    # Marca que o cliente já disse "não sou eu" para a ficha sugerida pelo
+    # telefone — evita perguntar de novo a cada login.
+    vinculo_recusado = models.BooleanField(default=False)
+
     is_active = models.BooleanField(default=True, db_index=True)
 
     # Auditoria — o vínculo a uma ficha que o escritório já tinha é o evento
@@ -205,7 +226,8 @@ class ContaClienteApp(models.Model):
         ordering = ["-criado_em"]
 
     def __str__(self):
-        return f"{self.email} → {self.cliente.nome_completo}"
+        alvo = self.cliente.nome_completo if self.cliente_id else "sem ficha"
+        return f"{self.telefone or self.email} → {alvo}"
 
     def set_senha(self, senha_bruta: str) -> None:
         from django.contrib.auth.hashers import make_password
@@ -215,7 +237,43 @@ class ContaClienteApp(models.Model):
     def checar_senha(self, senha_bruta: str) -> bool:
         from django.contrib.auth.hashers import check_password
 
+        if not self.senha_hash:
+            return False
         return check_password(senha_bruta, self.senha_hash)
+
+
+class CodigoAcessoCliente(models.Model):
+    """Código de acesso de uso único enviado por WhatsApp (login do cliente).
+
+    Uma linha por solicitação. O código nunca é guardado em claro nem escrito em
+    log — só o hash. A validação usa sempre a solicitação mais recente do número.
+    """
+
+    telefone = models.CharField(max_length=20, db_index=True)
+    codigo_hash = models.CharField(max_length=256)
+    expira_em = models.DateTimeField(db_index=True)
+    tentativas = models.PositiveSmallIntegerField(default=0)
+    usado_em = models.DateTimeField(null=True, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Código de acesso do cliente"
+        verbose_name_plural = "Códigos de acesso do cliente"
+        ordering = ["-criado_em"]
+        indexes = [models.Index(fields=["telefone", "-criado_em"])]
+
+    def __str__(self):
+        return f"{self.telefone} (expira {self.expira_em:%d/%m %H:%M})"
+
+    def set_codigo(self, codigo: str) -> None:
+        from django.contrib.auth.hashers import make_password
+
+        self.codigo_hash = make_password(codigo)
+
+    def confere(self, codigo: str) -> bool:
+        from django.contrib.auth.hashers import check_password
+
+        return check_password(codigo, self.codigo_hash)
 
 
 TIPO_CONTA_CHOICES = [

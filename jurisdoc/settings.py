@@ -133,9 +133,12 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "app_login": "10/min",
         # Área "Sou cliente" do app — chaveados por CPF/e-mail, não por IP
-        "cliente_app_registro": "5/min",
         "cliente_app_login": "10/min",
         "cliente_app_senha": "5/min",
+        # Código por WhatsApp: o envio é o recurso escasso (o WhatsApp limita
+        # conversas novas), então o teto é por hora e por telefone.
+        "cliente_app_codigo_envio": "5/hour",
+        "cliente_app_codigo_validacao": "15/hour",
     },
 }
 
@@ -210,6 +213,14 @@ if os.getenv("USE_SYSTEM_CERTS", "0") == "1":
         truststore.inject_into_ssl()
     except ImportError:
         pass
+
+# --- uazapi (código de acesso do cliente por WhatsApp) ---
+# Usado só pela área "Sou cliente" do app FlowALR. Sem estas variáveis o login
+# por WhatsApp responde 503 e o acesso alternativo (e-mail/senha) segue valendo.
+UAZAPI_BASE_URL = os.getenv("UAZAPI_BASE_URL", "")
+UAZAPI_INSTANCE_TOKEN = os.getenv("UAZAPI_INSTANCE_TOKEN", "")
+# Nome que aparece no início da mensagem enviada ao cliente.
+APP_CLIENTE_NOME = os.getenv("APP_CLIENTE_NOME", "FlowALR")
 
 # --- OpenAI (leitura de documentos do cliente por IA) ---
 # Sem OPENAI_API_KEY o endpoint responde 503 e o preenchimento manual segue normal.

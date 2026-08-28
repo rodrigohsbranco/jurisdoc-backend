@@ -186,12 +186,18 @@ class ClienteAppAuthentication(authentication.BaseAuthentication):
         if payload.get("type") != CLIENTE_TOKEN_TYPE:
             return None  # outro tipo de token — deixa o próximo authenticator tentar
 
+        from django.db.models import Q
+
         from cadastro.models import ContaClienteApp
 
+        # `cliente__isnull=True` é essencial: no login por WhatsApp a conta nasce
+        # sem ficha (o CPF só chega no cadastro). Filtrar por `cliente__is_active`
+        # sozinho faria o JOIN descartar justamente essas contas.
         conta = (
             ContaClienteApp.objects
             .select_related("cliente")
-            .filter(pk=payload.get("conta_id"), is_active=True, cliente__is_active=True)
+            .filter(pk=payload.get("conta_id"), is_active=True)
+            .filter(Q(cliente__isnull=True) | Q(cliente__is_active=True))
             .first()
         )
         if conta is None:
