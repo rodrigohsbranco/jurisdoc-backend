@@ -102,9 +102,17 @@ def _ficha_sugerida(telefone: str) -> Cliente | None:
     # então não dá para casar dígitos direto no banco. Os 4 últimos dígitos são o
     # maior trecho que nenhum formato quebra — usamos como peneira e comparamos já
     # normalizado em Python.
+    # `envios_app__isnull=True` fecha o buraco da trava: sem isso, a ficha que o
+    # próprio cliente acabou de enviar voltaria a ser oferecida como vínculo — e
+    # ele recuperaria o acesso aos dados que já foram entregues ao escritório.
     candidatos = (
         Cliente.objects
-        .filter(is_active=True, telefone__contains=telefone[-4:], conta_app__isnull=True)
+        .filter(
+            is_active=True,
+            telefone__contains=telefone[-4:],
+            conta_app__isnull=True,
+            envios_app__isnull=True,
+        )
         .only("id", "nome_completo", "telefone")[:200]
     )
     for cliente in candidatos:

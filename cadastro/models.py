@@ -525,3 +525,41 @@ class Contrato(models.Model):
     def __str__(self):
         num_contratos = len(self.contratos) if isinstance(self.contratos, list) else 0
         return f"Contrato #{self.id} - {self.cliente.nome_completo} ({num_contratos} contrato(s))"
+
+
+class CadastroAppEnviado(models.Model):
+    """CPF cujo autocadastro pelo app já foi concluído e entregue ao escritório.
+
+    É a trava de acesso: depois de enviar, o cliente não volta mais àqueles
+    dados. O mesmo telefone pode cadastrar OUTRA pessoa (outro CPF) — o que não
+    se repete é o CPF.
+
+    Fica em tabela própria, e não como flag no `Cliente`, para manter a regra do
+    app fora do model que o JurisDoc usa em produção.
+    """
+
+    cpf = models.CharField(max_length=11, unique=True, db_index=True)
+    cliente = models.ForeignKey(
+        Cliente,
+        on_delete=models.CASCADE,
+        related_name="envios_app",
+    )
+    telefone = models.CharField(max_length=20, blank=True, default="")
+    indicado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cadastros_app_recebidos",
+    )
+    kit_id = models.IntegerField(null=True, blank=True)
+    notificacao_enviada = models.BooleanField(default=False)
+    enviado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Cadastro enviado pelo app"
+        verbose_name_plural = "Cadastros enviados pelo app"
+        ordering = ["-enviado_em"]
+
+    def __str__(self):
+        return f"{self.cpf} — {self.cliente.nome_completo} ({self.enviado_em:%d/%m/%Y})"

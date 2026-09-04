@@ -44,7 +44,7 @@ from accounts.service_auth import (
     issue_cliente_token,
 )
 
-from .models import Cliente, ContaClienteApp
+from .models import CadastroAppEnviado, Cliente, ContaClienteApp
 from .serializers import ClienteSerializer
 from .validators import validate_cpf
 from .views_app import ClienteAppViewSet
@@ -444,6 +444,21 @@ class MeusDadosClienteViewSet(ClienteAppViewSet):
         if erros:
             return response.Response(erros, status=status.HTTP_400_BAD_REQUEST)
 
+        # Trava por CPF: dados já enviados ao escritório não se reabrem pelo app.
+        if CadastroAppEnviado.objects.filter(cpf=cpf).exists():
+            logger.info(f"criar-ficha recusado: CPF {cpf[:3]}*** já enviado pelo app")
+            return response.Response(
+                {
+                    "detail": (
+                        "Os dados deste CPF já foram enviados ao escritório e não podem "
+                        "ser alterados pelo app. Em caso de dúvida, entre em contato com "
+                        "o escritório."
+                    ),
+                    "motivo": "cadastro_ja_enviado",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         existente = Cliente.objects.filter(cpf=cpf).first()
         if existente is not None:
             # Se a ficha já é de outra conta, não há o que fazer pelo app.
@@ -485,6 +500,83 @@ class MeusDadosClienteViewSet(ClienteAppViewSet):
         return response.Response(
             {"cliente_id": cliente.id, "kit_id": kit_id, "cliente": _resumo_cliente(cliente)},
             status=status.HTTP_201_CREATED,
+        )
+
+    # ── Conclusão do cadastro (o "salvar" final da tela) ──
+
+    @decorators.action(detail=False, methods=["post"])
+    def concluir(self, request):
+        """Encerra o autocadastro: entrega ao escritório e fecha o acesso.
+
+        A partir daqui o cliente não volta mais àqueles dados — a trava é por
+        CPF. O mesmo telefone continua livre para cadastrar OUTRA pessoa, por
+        isso a conta é desvinculada em vez de desativada.
+
+        O aviso ao escritório é acessório: se o WhatsApp falhar, a conclusão
+        acontece do mesmo jeito e o problema fica no log.
+        """
+        from kits.models import Kit
+
+        from .services_notificacao_app import notificar_escritorio
+
+        conta = request.user.conta
+        cliente = conta.cliente
+        if cliente is None:
+            return response.Response(
+                {"detail": "Não há cadastro para concluir.", "motivo": "sem_cadastro"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if CadastroAppEnviado.objects.filter(cpf=cliente.cpf).exists():
+            return response.Response(
+                {
+                    "detail": "Este cadastro já foi enviado ao escritório.",
+                    "motivo": "cadastro_ja_enviado",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        kit = Kit.objects.filter(cliente=cliente, origem="app").order_by("id").first()
+        indicador = conta.indicado_por
+        telefone_acesso = conta.telefone or ""
+
+        with transaction.atomic():
+            envio = CadastroAppEnviado.objects.create(
+                cpf=cliente.cpf,
+                cliente=cliente,
+                telefone=telefone_acesso,
+                indicado_por=indicador,
+                kit_id=kit.id if kit else None,
+            )
+            # Solta o vínculo: o telefone segue servindo para cadastrar outra
+            # pessoa, mas esta ficha fica fora do alcance do app.
+            conta.cliente = None
+            conta.vinculo_recusado = False
+            conta.save(update_fields=["cliente", "vinculo_recusado"])
+
+        enviada = notificar_escritorio(
+            cliente, telefone_acesso, indicador, kit.id if kit else None
+        )
+        if enviada:
+            CadastroAppEnviado.objects.filter(pk=envio.pk).update(notificacao_enviada=True)
+
+        logger.info(
+            f"Cadastro do cliente #{cliente.id} concluído pelo app "
+            f"(aviso ao escritório: {'enviado' if enviada else 'falhou'})"
+        )
+        return response.Response(
+            {
+                "concluido": True,
+                "acesso_encerrado": True,
+                "cliente_id": cliente.id,
+                "kit_id": kit.id if kit else None,
+                "escritorio_notificado": enviada,
+                "detail": (
+                    "Cadastro enviado ao escritório. Em caso de dúvida, entre em "
+                    "contato com o escritório."
+                ),
+            },
+            status=status.HTTP_200_OK,
         )
 
     # ── Vínculo com ficha que o escritório já tinha ──
