@@ -211,6 +211,17 @@ class ContaClienteApp(models.Model):
     # telefone — evita perguntar de novo a cada login.
     vinculo_recusado = models.BooleanField(default=False)
 
+    # Usuário do JurisDoc que enviou o link do pré-cadastro para este cliente.
+    # Vira o `criado_por` do kit gerado, para que ele enxergue o kit na produção
+    # (admins já veem tudo). Nulo quando o app não informa a origem do link.
+    indicado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="clientes_app_indicados",
+    )
+
     is_active = models.BooleanField(default=True, db_index=True)
 
     # Auditoria — o vínculo a uma ficha que o escritório já tinha é o evento

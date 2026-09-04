@@ -113,16 +113,37 @@ def _resumo_cliente(cliente: Cliente | None) -> dict | None:
     }
 
 
-def _criar_kit_rascunho(cliente: Cliente) -> int | None:
+def resolver_indicador(valor) -> "object | None":
+    """Usuário do JurisDoc que enviou o link do pré-cadastro.
+
+    O app conhece esse id porque o SSO (`/api/app/auth/validar-credenciais/`)
+    devolve o `id` do colaborador. Valor ausente ou desconhecido não é erro: o
+    kit simplesmente cai para o usuário de sistema do app.
+    """
+    if valor in (None, "", 0):
+        return None
+    User = get_user_model()
+    try:
+        return User.objects.filter(pk=int(valor), is_active=True).first()
+    except (TypeError, ValueError):
+        return None
+
+
+def _criar_kit_rascunho(cliente: Cliente, indicado_por=None) -> int | None:
     """Cria o kit em rascunho do pré-cadastro, quando faz sentido.
 
     Não cria quando o cliente já tem qualquer kit: se o escritório já abriu um
     caso para ele, um rascunho novo só polui a lista de produção.
 
+    `criado_por` define quem enxerga o kit na produção: admins veem todos, e os
+    demais só os próprios. Por isso o kit fica no nome de quem enviou o link,
+    quando o app informa — assim o colaborador acompanha o pré-cadastro que ele
+    mesmo originou. Sem essa informação, cai para o usuário de sistema do app.
+
     Falha aqui não derruba o cadastro — o kit é conveniência para o escritório,
     não parte da identidade do cliente. O savepoint é o que garante isso: sem
     ele, um erro de banco aqui dentro invalidaria a transação inteira do
-    registro, e o cadastro seria perdido junto.
+    cadastro, e a ficha seria perdida junto.
     """
     from kits.models import Kit
 
@@ -132,20 +153,28 @@ def _criar_kit_rascunho(cliente: Cliente) -> int | None:
                 return None
 
             User = get_user_model()
-            operador = User.objects.filter(username=_APP_SYSTEM_USERNAME).first()
-            if operador is None:
+            dono = indicado_por or User.objects.filter(username=_APP_SYSTEM_USERNAME).first()
+            if dono is None:
                 logger.error(
                     f"Kit do pré-cadastro não criado: usuário '{_APP_SYSTEM_USERNAME}' não existe."
                 )
                 return None
 
+            origem_link = (
+                f" (link de {indicado_por.nome_completo or indicado_por.username})"
+                if indicado_por else ""
+            )
             kit = Kit.objects.create(
                 cliente=cliente,
-                criado_por=operador,
+                criado_por=dono,
                 tipo="bancario",
                 status="rascunho",
                 origem="app",
-                app_criado_por_nome=f"Pré-cadastro — {cliente.nome_completo}",
+                app_criado_por_nome=f"Pré-cadastro — {cliente.nome_completo}{origem_link}",
+            )
+            logger.info(
+                f"Kit #{kit.id} de pré-cadastro criado para o cliente #{cliente.id} "
+                f"(visível para {dono.username} e admins)"
             )
             return kit.id
     except Exception as exc:
@@ -445,7 +474,12 @@ class MeusDadosClienteViewSet(ClienteAppViewSet):
         conta.vinculada_a_ficha_existente = existente is not None
         conta.save(update_fields=["cliente", "vinculada_a_ficha_existente"])
 
-        kit_id = _criar_kit_rascunho(cliente)
+        indicador = conta.indicado_por or resolver_indicador(dados.get("indicado_por_id"))
+        if indicador and not conta.indicado_por_id:
+            conta.indicado_por = indicador
+            conta.save(update_fields=["indicado_por"])
+
+        kit_id = _criar_kit_rascunho(cliente, indicador)
         logger.info(f"Ficha criada pelo app para a conta #{conta.id} → cliente #{cliente.id}")
 
         return response.Response(
@@ -491,8 +525,16 @@ class MeusDadosClienteViewSet(ClienteAppViewSet):
         conta.save(update_fields=["cliente", "vinculada_a_ficha_existente"])
         logger.info(f"Conta #{conta.id} vinculada à ficha existente #{ficha.id} pelo telefone")
 
+        # Ficha do escritório sem kit nenhum também merece o rascunho inicial.
+        kit_id = _criar_kit_rascunho(ficha, conta.indicado_por)
+
         return response.Response(
-            {"vinculado": True, "cliente_id": ficha.id, "cliente": _resumo_cliente(ficha)}
+            {
+                "vinculado": True,
+                "cliente_id": ficha.id,
+                "kit_id": kit_id,
+                "cliente": _resumo_cliente(ficha),
+            }
         )
 
     # ── Acesso alternativo (plano B para quando o WhatsApp falha) ──

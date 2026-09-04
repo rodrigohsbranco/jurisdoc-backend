@@ -34,6 +34,7 @@ from accounts.service_auth import (
 
 from . import services_uazapi as uazapi
 from .models import Cliente, CodigoAcessoCliente, ContaClienteApp
+from .views_cliente_app import resolver_indicador
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,7 @@ def _payload_sessao(conta: ContaClienteApp) -> dict:
         "expira_em": expira_em,
         "cliente_id": conta.cliente_id,
         "cadastro_pendente": conta.cliente_id is None,
+        "indicado_por_id": conta.indicado_por_id,
         "vinculo_sugerido": None,
     }
 
@@ -295,8 +297,19 @@ class ValidarCodigoView(_BaseWhatsAppView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        campos = ["ultimo_login_em"]
         conta.ultimo_login_em = agora
-        conta.save(update_fields=["ultimo_login_em"])
+
+        # Quem enviou o link do pré-cadastro: guardado no primeiro acesso para
+        # que o kit gerado depois caia na produção desse colaborador.
+        if not conta.indicado_por_id:
+            indicador = resolver_indicador(dados.get("indicado_por_id"))
+            if indicador is not None:
+                conta.indicado_por = indicador
+                campos.append("indicado_por")
+                logger.info(f"Conta #{conta.id}: pré-cadastro indicado por {indicador.username}")
+
+        conta.save(update_fields=campos)
 
         logger.info(f"Cliente autenticado por WhatsApp: conta #{conta.id}")
         return response.Response(
