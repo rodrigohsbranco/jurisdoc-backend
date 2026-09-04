@@ -619,7 +619,14 @@ class MeusDadosClienteViewSet(ClienteAppViewSet):
             rascunhos_do_app.delete()
             cliente.is_active = False
             cliente.save(update_fields=["is_active"])
-            ContaClienteApp.objects.filter(cliente=cliente).update(is_active=False)
+            # Desliga a conta E solta o vínculo com a ficha. Soltar é o que
+            # distingue "o cliente apagou o próprio cadastro" de "o escritório
+            # desativou a ficha": no primeiro caso ele volta pelo WhatsApp e
+            # cadastra de novo do zero; no segundo, o login é recusado com
+            # `cadastro_inativo` (ver views_cliente_whatsapp).
+            ContaClienteApp.objects.filter(cliente=cliente).update(
+                is_active=False, cliente=None
+            )
 
         logger.info(f"Cliente #{cliente.id} excluiu o próprio pré-cadastro pelo app")
         return response.Response(status=status.HTTP_204_NO_CONTENT)

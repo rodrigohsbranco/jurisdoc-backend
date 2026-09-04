@@ -71,13 +71,19 @@ def _texto_mensagem(codigo: str) -> str:
     )
 
 
-def _conta_por_telefone(telefone: str) -> ContaClienteApp | None:
-    return (
-        ContaClienteApp.objects
-        .select_related("cliente")
-        .filter(telefone__in=uazapi.variantes_telefone(telefone), is_active=True)
-        .first()
+def _conta_por_telefone(telefone: str, incluir_inativas: bool = False) -> ContaClienteApp | None:
+    """Conta ligada ao número, considerando as duas grafias do nono dígito.
+
+    `incluir_inativas` é usado só no login: o telefone é único, então uma conta
+    desativada precisa ser encontrada para ser reativada — senão o número fica
+    bloqueado para sempre.
+    """
+    qs = ContaClienteApp.objects.select_related("cliente").filter(
+        telefone__in=uazapi.variantes_telefone(telefone)
     )
+    if not incluir_inativas:
+        qs = qs.filter(is_active=True)
+    return qs.first()
 
 
 def _ficha_sugerida(telefone: str) -> Cliente | None:
@@ -297,6 +303,27 @@ class ValidarCodigoView(_BaseWhatsAppView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+        # Ficha desativada pelo escritório: recusa aqui, e não a cada requisição.
+        # Sem isto o login "funciona" (o token é emitido) mas toda chamada
+        # seguinte falha na autenticação, deixando o cliente sem entender o
+        # motivo. Contas sem ficha seguem normalmente — é o estado de quem
+        # ainda vai se cadastrar.
+        if conta.cliente_id and not conta.cliente.is_active:
+            logger.info(
+                f"Login recusado para a conta #{conta.id}: ficha #{conta.cliente_id} inativa"
+            )
+            return response.Response(
+                {
+                    "valido": False,
+                    "motivo": "cadastro_inativo",
+                    "detail": (
+                        "Seu cadastro está inativo. Entre em contato com o "
+                        "escritório para reativar o acesso."
+                    ),
+                },
+                status=status.HTTP_200_OK,
+            )
+
         campos = ["ultimo_login_em"]
         conta.ultimo_login_em = agora
 
@@ -318,15 +345,27 @@ class ValidarCodigoView(_BaseWhatsAppView):
 
     @staticmethod
     def _obter_ou_criar_conta(telefone: str) -> ContaClienteApp | None:
-        conta = _conta_por_telefone(telefone)
+        """Devolve a conta do número, reativando a que existir.
+
+        Quem acabou de provar que é dono do telefone tem direito de voltar. Uma
+        conta desativada (o cliente excluiu a própria ficha, por exemplo) é
+        reativada em vez de bloquear o número: como `telefone` é único, tentar
+        criar outra esbarraria na restrição e o cliente ficaria sem acesso para
+        sempre.
+        """
+        conta = _conta_por_telefone(telefone, incluir_inativas=True)
         if conta is not None:
+            if not conta.is_active:
+                conta.is_active = True
+                conta.save(update_fields=["is_active"])
+                logger.info(f"Conta #{conta.id} reativada no login por WhatsApp")
             return conta
         try:
             with transaction.atomic():
                 return ContaClienteApp.objects.create(telefone=telefone)
         except IntegrityError:
             # Corrida entre duas validações do mesmo número
-            return _conta_por_telefone(telefone)
+            return _conta_por_telefone(telefone, incluir_inativas=True)
 
     @staticmethod
     def _invalido(motivo: str = "codigo_invalido", restantes: int | None = None):
