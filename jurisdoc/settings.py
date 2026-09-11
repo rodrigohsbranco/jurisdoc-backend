@@ -221,6 +221,9 @@ UAZAPI_BASE_URL = os.getenv("UAZAPI_BASE_URL", "")
 UAZAPI_INSTANCE_TOKEN = os.getenv("UAZAPI_INSTANCE_TOKEN", "")
 # Nome que aparece no início da mensagem enviada ao cliente.
 APP_CLIENTE_NOME = os.getenv("APP_CLIENTE_NOME", "FlowALR")
+# WhatsApp do escritório que recebe o aviso quando um cliente conclui o
+# autocadastro pelo app. Vazio desliga o aviso (o cadastro segue funcionando).
+ESCRITORIO_WHATSAPP = os.getenv("ESCRITORIO_WHATSAPP", "")
 
 # --- OpenAI (leitura de documentos do cliente por IA) ---
 # Sem OPENAI_API_KEY o endpoint responde 503 e o preenchimento manual segue normal.

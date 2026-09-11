@@ -44,7 +44,7 @@ from accounts.service_auth import (
     issue_cliente_token,
 )
 
-from .models import Cliente, ContaClienteApp
+from .models import CadastroAppEnviado, Cliente, ContaClienteApp
 from .serializers import ClienteSerializer
 from .validators import validate_cpf
 from .views_app import ClienteAppViewSet
@@ -113,16 +113,37 @@ def _resumo_cliente(cliente: Cliente | None) -> dict | None:
     }
 
 
-def _criar_kit_rascunho(cliente: Cliente) -> int | None:
+def resolver_indicador(valor) -> "object | None":
+    """Usuário do JurisDoc que enviou o link do pré-cadastro.
+
+    O app conhece esse id porque o SSO (`/api/app/auth/validar-credenciais/`)
+    devolve o `id` do colaborador. Valor ausente ou desconhecido não é erro: o
+    kit simplesmente cai para o usuário de sistema do app.
+    """
+    if valor in (None, "", 0):
+        return None
+    User = get_user_model()
+    try:
+        return User.objects.filter(pk=int(valor), is_active=True).first()
+    except (TypeError, ValueError):
+        return None
+
+
+def _criar_kit_rascunho(cliente: Cliente, indicado_por=None) -> int | None:
     """Cria o kit em rascunho do pré-cadastro, quando faz sentido.
 
     Não cria quando o cliente já tem qualquer kit: se o escritório já abriu um
     caso para ele, um rascunho novo só polui a lista de produção.
 
+    `criado_por` define quem enxerga o kit na produção: admins veem todos, e os
+    demais só os próprios. Por isso o kit fica no nome de quem enviou o link,
+    quando o app informa — assim o colaborador acompanha o pré-cadastro que ele
+    mesmo originou. Sem essa informação, cai para o usuário de sistema do app.
+
     Falha aqui não derruba o cadastro — o kit é conveniência para o escritório,
     não parte da identidade do cliente. O savepoint é o que garante isso: sem
     ele, um erro de banco aqui dentro invalidaria a transação inteira do
-    registro, e o cadastro seria perdido junto.
+    cadastro, e a ficha seria perdida junto.
     """
     from kits.models import Kit
 
@@ -132,20 +153,28 @@ def _criar_kit_rascunho(cliente: Cliente) -> int | None:
                 return None
 
             User = get_user_model()
-            operador = User.objects.filter(username=_APP_SYSTEM_USERNAME).first()
-            if operador is None:
+            dono = indicado_por or User.objects.filter(username=_APP_SYSTEM_USERNAME).first()
+            if dono is None:
                 logger.error(
                     f"Kit do pré-cadastro não criado: usuário '{_APP_SYSTEM_USERNAME}' não existe."
                 )
                 return None
 
+            origem_link = (
+                f" (link de {indicado_por.nome_completo or indicado_por.username})"
+                if indicado_por else ""
+            )
             kit = Kit.objects.create(
                 cliente=cliente,
-                criado_por=operador,
+                criado_por=dono,
                 tipo="bancario",
                 status="rascunho",
                 origem="app",
-                app_criado_por_nome=f"Pré-cadastro — {cliente.nome_completo}",
+                app_criado_por_nome=f"Pré-cadastro — {cliente.nome_completo}{origem_link}",
+            )
+            logger.info(
+                f"Kit #{kit.id} de pré-cadastro criado para o cliente #{cliente.id} "
+                f"(visível para {dono.username} e admins)"
             )
             return kit.id
     except Exception as exc:
@@ -415,6 +444,21 @@ class MeusDadosClienteViewSet(ClienteAppViewSet):
         if erros:
             return response.Response(erros, status=status.HTTP_400_BAD_REQUEST)
 
+        # Trava por CPF: dados já enviados ao escritório não se reabrem pelo app.
+        if CadastroAppEnviado.objects.filter(cpf=cpf).exists():
+            logger.info(f"criar-ficha recusado: CPF {cpf[:3]}*** já enviado pelo app")
+            return response.Response(
+                {
+                    "detail": (
+                        "Os dados deste CPF já foram enviados ao escritório e não podem "
+                        "ser alterados pelo app. Em caso de dúvida, entre em contato com "
+                        "o escritório."
+                    ),
+                    "motivo": "cadastro_ja_enviado",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
         existente = Cliente.objects.filter(cpf=cpf).first()
         if existente is not None:
             # Se a ficha já é de outra conta, não há o que fazer pelo app.
@@ -445,12 +489,94 @@ class MeusDadosClienteViewSet(ClienteAppViewSet):
         conta.vinculada_a_ficha_existente = existente is not None
         conta.save(update_fields=["cliente", "vinculada_a_ficha_existente"])
 
-        kit_id = _criar_kit_rascunho(cliente)
+        indicador = conta.indicado_por or resolver_indicador(dados.get("indicado_por_id"))
+        if indicador and not conta.indicado_por_id:
+            conta.indicado_por = indicador
+            conta.save(update_fields=["indicado_por"])
+
+        kit_id = _criar_kit_rascunho(cliente, indicador)
         logger.info(f"Ficha criada pelo app para a conta #{conta.id} → cliente #{cliente.id}")
 
         return response.Response(
             {"cliente_id": cliente.id, "kit_id": kit_id, "cliente": _resumo_cliente(cliente)},
             status=status.HTTP_201_CREATED,
+        )
+
+    # ── Conclusão do cadastro (o "salvar" final da tela) ──
+
+    @decorators.action(detail=False, methods=["post"])
+    def concluir(self, request):
+        """Encerra o autocadastro: entrega ao escritório e fecha o acesso.
+
+        A partir daqui o cliente não volta mais àqueles dados — a trava é por
+        CPF. O mesmo telefone continua livre para cadastrar OUTRA pessoa, por
+        isso a conta é desvinculada em vez de desativada.
+
+        O aviso ao escritório é acessório: se o WhatsApp falhar, a conclusão
+        acontece do mesmo jeito e o problema fica no log.
+        """
+        from kits.models import Kit
+
+        from .services_notificacao_app import notificar_escritorio
+
+        conta = request.user.conta
+        cliente = conta.cliente
+        if cliente is None:
+            return response.Response(
+                {"detail": "Não há cadastro para concluir.", "motivo": "sem_cadastro"},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if CadastroAppEnviado.objects.filter(cpf=cliente.cpf).exists():
+            return response.Response(
+                {
+                    "detail": "Este cadastro já foi enviado ao escritório.",
+                    "motivo": "cadastro_ja_enviado",
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        kit = Kit.objects.filter(cliente=cliente, origem="app").order_by("id").first()
+        indicador = conta.indicado_por
+        telefone_acesso = conta.telefone or ""
+
+        with transaction.atomic():
+            envio = CadastroAppEnviado.objects.create(
+                cpf=cliente.cpf,
+                cliente=cliente,
+                telefone=telefone_acesso,
+                indicado_por=indicador,
+                kit_id=kit.id if kit else None,
+            )
+            # Solta o vínculo: o telefone segue servindo para cadastrar outra
+            # pessoa, mas esta ficha fica fora do alcance do app.
+            conta.cliente = None
+            conta.vinculo_recusado = False
+            conta.save(update_fields=["cliente", "vinculo_recusado"])
+
+        enviada = notificar_escritorio(
+            cliente, telefone_acesso, indicador, kit.id if kit else None
+        )
+        if enviada:
+            CadastroAppEnviado.objects.filter(pk=envio.pk).update(notificacao_enviada=True)
+
+        logger.info(
+            f"Cadastro do cliente #{cliente.id} concluído pelo app "
+            f"(aviso ao escritório: {'enviado' if enviada else 'falhou'})"
+        )
+        return response.Response(
+            {
+                "concluido": True,
+                "acesso_encerrado": True,
+                "cliente_id": cliente.id,
+                "kit_id": kit.id if kit else None,
+                "escritorio_notificado": enviada,
+                "detail": (
+                    "Cadastro enviado ao escritório. Em caso de dúvida, entre em "
+                    "contato com o escritório."
+                ),
+            },
+            status=status.HTTP_200_OK,
         )
 
     # ── Vínculo com ficha que o escritório já tinha ──
@@ -491,8 +617,16 @@ class MeusDadosClienteViewSet(ClienteAppViewSet):
         conta.save(update_fields=["cliente", "vinculada_a_ficha_existente"])
         logger.info(f"Conta #{conta.id} vinculada à ficha existente #{ficha.id} pelo telefone")
 
+        # Ficha do escritório sem kit nenhum também merece o rascunho inicial.
+        kit_id = _criar_kit_rascunho(ficha, conta.indicado_por)
+
         return response.Response(
-            {"vinculado": True, "cliente_id": ficha.id, "cliente": _resumo_cliente(ficha)}
+            {
+                "vinculado": True,
+                "cliente_id": ficha.id,
+                "kit_id": kit_id,
+                "cliente": _resumo_cliente(ficha),
+            }
         )
 
     # ── Acesso alternativo (plano B para quando o WhatsApp falha) ──
@@ -577,7 +711,14 @@ class MeusDadosClienteViewSet(ClienteAppViewSet):
             rascunhos_do_app.delete()
             cliente.is_active = False
             cliente.save(update_fields=["is_active"])
-            ContaClienteApp.objects.filter(cliente=cliente).update(is_active=False)
+            # Desliga a conta E solta o vínculo com a ficha. Soltar é o que
+            # distingue "o cliente apagou o próprio cadastro" de "o escritório
+            # desativou a ficha": no primeiro caso ele volta pelo WhatsApp e
+            # cadastra de novo do zero; no segundo, o login é recusado com
+            # `cadastro_inativo` (ver views_cliente_whatsapp).
+            ContaClienteApp.objects.filter(cliente=cliente).update(
+                is_active=False, cliente=None
+            )
 
         logger.info(f"Cliente #{cliente.id} excluiu o próprio pré-cadastro pelo app")
         return response.Response(status=status.HTTP_204_NO_CONTENT)
