@@ -23,6 +23,32 @@ class Kit(models.Model):
         ("app", "App Flowalr"),
     ]
 
+    # Como a assinatura do kit foi (ou será) colhida. Fica em branco enquanto o
+    # operador não escolhe a via na etapa final.
+    VIA_ASSINATURA_CHOICES = [
+        ("zapsign", "Digital (ZapSign)"),
+        ("presencial", "Presencial"),
+    ]
+
+    # Eixo da esteira: independente de `status`. Enquanto `status` conta em que
+    # ponto da produção o kit está, este campo conta onde ele está na fila de
+    # saída consumida pela aplicação externa.
+    #
+    #   em_producao → kit ainda sendo montado; não existe para a esteira
+    #   aguardando  → assinado e disponível; a aplicação externa pode assumir
+    #   na_esteira  → a aplicação externa assumiu e está processando
+    #   concluido   → a aplicação externa baixou
+    #
+    # Quem move de `aguardando` para frente é a própria aplicação externa: o
+    # escritório entrega o kit assinado e a esteira passa a espelhar o que
+    # acontece do outro lado.
+    ESTEIRA_CHOICES = [
+        ("em_producao", "Em produção"),
+        ("aguardando", "Aguardando esteira"),
+        ("na_esteira", "Na esteira"),
+        ("concluido", "Concluído"),
+    ]
+
     tipo = models.CharField(
         max_length=20,
         choices=TIPO_CHOICES,
@@ -84,6 +110,36 @@ class Kit(models.Model):
         help_text="Token público do portal de assinatura (/assinar/<token>/).",
     )
 
+    via_assinatura = models.CharField(
+        max_length=12,
+        choices=VIA_ASSINATURA_CHOICES,
+        blank=True,
+        default="",
+        help_text="Via escolhida na etapa final: assinatura pelo ZapSign ou presencial.",
+    )
+
+    status_esteira = models.CharField(
+        max_length=12,
+        choices=ESTEIRA_CHOICES,
+        default="em_producao",
+        db_index=True,
+    )
+    entrou_esteira_em = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Quando o kit foi assinado e ficou disponível para a aplicação externa.",
+    )
+    assumido_em = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Quando a aplicação externa assumiu o kit e começou a processá-lo.",
+    )
+    baixado_em = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Quando a aplicação externa baixou o kit da esteira.",
+    )
+
     criado_em = models.DateTimeField(auto_now_add=True)
     atualizado_em = models.DateTimeField(auto_now=True)
 
@@ -93,6 +149,7 @@ class Kit(models.Model):
             models.Index(fields=["criado_por", "-criado_em"]),
             models.Index(fields=["cliente", "-criado_em"]),
             models.Index(fields=["status"]),
+            models.Index(fields=["status_esteira", "-entrou_esteira_em"]),
         ]
 
     def __str__(self):
@@ -157,7 +214,15 @@ class DocumentoKit(models.Model):
         ("ciencia", "Declaração de Ciência"),
         ("domicilio", "Declaração de Domicílio"),
         ("assinado_zapsign", "Kit Assinado (ZapSign)"),
+        # Digitalização do kit assinado à mão — a prova de assinatura da via
+        # presencial, equivalente ao que o ZapSign devolve na via digital.
+        ("assinado_presencial", "Kit Assinado (Presencial)"),
     ]
+
+    # Tipos que não são peças do kit e sim a PROVA de que ele foi assinado.
+    # Toda lista de "documentos a assinar" precisa excluí-los, senão a prova
+    # volta para a fila de assinatura (e, no ZapSign, seria reenviada).
+    TIPOS_PROVA = ["assinado_zapsign", "assinado_presencial"]
 
     kit = models.ForeignKey(
         Kit,

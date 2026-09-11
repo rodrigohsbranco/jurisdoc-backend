@@ -16,9 +16,16 @@ from .models import (
     BancoKit,
     ClausulaPorcentagemPadrao,
     ClausulaPorcentagemUF,
+    DocumentoKit,
     Kit,
     TarifaKit,
     resolver_clausula_porcentagem,
+)
+from .services_esteira import (
+    marcar_assinado,
+    remover_documento_presencial,
+    salvar_documentos_presenciais,
+    tem_prova_de_assinatura,
 )
 from .serializers import (
     AcaoKitSerializer,
@@ -70,11 +77,13 @@ class KitViewSet(viewsets.ModelViewSet):
             "notificacoes_list": "kits.visualizar",
             "marcar_notificacao": "kits.editar",
             "enviar_para_assinatura": "kits.editar",
+            "documento_assinado": "kits.editar",
+            "esteira": "esteira.visualizar",
         })
         # Defesa em profundidade: capacidade (request-level) + dono (object-level)
         return [cap, IsOwnerOrAdmin()]
 
-    filterset_fields = ["tipo", "status", "cliente", "criado_por"]
+    filterset_fields = ["tipo", "status", "cliente", "criado_por", "status_esteira", "via_assinatura"]
     search_fields = ["cliente__nome_completo", "cliente__cpf"]
     ordering_fields = ["criado_em", "atualizado_em"]
     ordering = ["-criado_em"]
@@ -211,15 +220,73 @@ class KitViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def assinar(self, request, pk=None):
+        """Fecha a assinatura do kit e o promove para a esteira.
+
+        Na via presencial exige a digitalização anexada: sem ela o kit iria para
+        a esteira sem nada que a aplicação externa pudesse baixar — que é
+        exatamente o buraco que o funil veio fechar.
+        """
         kit = self.get_object()
         if kit.status != "finalizado":
             return Response(
                 {"detail": "Só é possível assinar um kit finalizado."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        kit.status = "assinado"
-        kit.save(update_fields=["status", "atualizado_em"])
+
+        if kit.via_assinatura == "presencial" and not tem_prova_de_assinatura(kit):
+            return Response(
+                {"detail": "Anexe o kit assinado digitalizado antes de marcar como assinado."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        marcar_assinado(kit)
         return Response(KitDetailSerializer(kit).data)
+
+    @action(
+        detail=True,
+        methods=["post", "delete"],
+        url_path="documento-assinado",
+        parser_classes=[MultiPartParser, FormParser],
+    )
+    def documento_assinado(self, request, pk=None):
+        """Digitalizações do kit assinado presencialmente.
+
+        POST   multipart com um ou mais arquivos em `arquivos` (aceita também
+               `arquivo`, no singular). Os envios ACUMULAM.
+        DELETE `documento_id` (query string ou body) remove uma digitalização.
+
+        Não marca o kit como assinado — quem faz isso é o `assinar`, para que o
+        operador confira tudo que subiu antes de fechar.
+        """
+        kit = self.get_object()
+
+        if request.method == "DELETE":
+            documento_id = request.query_params.get("documento_id") or (
+                request.data.get("documento_id") if hasattr(request, "data") else None
+            )
+            if not documento_id:
+                return Response(
+                    {"detail": "Informe 'documento_id' da digitalização a remover."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if not remover_documento_presencial(kit, documento_id):
+                return Response(
+                    {"detail": "Digitalização não encontrada neste kit."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            kit.refresh_from_db()
+            return Response(KitDetailSerializer(kit).data)
+
+        arquivos = request.FILES.getlist("arquivos") or request.FILES.getlist("arquivo")
+        if not arquivos:
+            return Response(
+                {"detail": "Envie ao menos um arquivo digitalizado no campo 'arquivos'."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        salvar_documentos_presenciais(kit, arquivos)
+        kit.refresh_from_db()
+        return Response(KitDetailSerializer(kit).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["get"], url_path="notificacao-extrajudicial/pdf")
     def notificacao_pdf(self, request, pk=None):
@@ -367,7 +434,7 @@ class KitViewSet(viewsets.ModelViewSet):
         if kit.zapsign_status == "pending" and kit.zapsign_sign_url:
             docs_info = [
                 {"tipo": d.tipo, "tipo_display": d.get_tipo_display()}
-                for d in kit.documentos.exclude(tipo="assinado_zapsign").order_by("tipo")
+                for d in kit.documentos.exclude(tipo__in=DocumentoKit.TIPOS_PROVA).order_by("tipo")
             ]
             return Response({
                 "status": kit.status,
@@ -377,7 +444,7 @@ class KitViewSet(viewsets.ModelViewSet):
             })
 
         # JurisDoc frontend não salva DocumentoKit — gera server-side se necessário
-        if not kit.documentos.exclude(tipo="assinado_zapsign").exists():
+        if not kit.documentos.exclude(tipo__in=DocumentoKit.TIPOS_PROVA).exists():
             from .services_documentos import gerar_documentos_kit
             try:
                 documentos_gerados, _ = gerar_documentos_kit(kit)
@@ -403,6 +470,37 @@ class KitViewSet(viewsets.ModelViewSet):
             "documentos": result["documentos"],
             "reutilizado": False,
         })
+
+    @action(detail=False, methods=["get"])
+    def esteira(self, request):
+        """GET /api/kits/esteira/ — a fila, para a página Esteira do JurisDoc.
+
+        Diferente do resto do viewset, não filtra por dono: a esteira é uma fila
+        do escritório, e quem tem `esteira.visualizar` acompanha a fila inteira,
+        não só os kits que criou.
+        """
+        qs = (
+            Kit.objects
+            .exclude(status_esteira="em_producao")
+            .select_related("cliente", "criado_por")
+            .prefetch_related("acoes")
+        )
+
+        fase = request.query_params.get("status_esteira")
+        if fase:
+            qs = qs.filter(status_esteira=fase)
+
+        busca = request.query_params.get("search")
+        if busca:
+            qs = qs.filter(
+                Q(cliente__nome_completo__icontains=busca) | Q(cliente__cpf__icontains=busca)
+            )
+
+        qs = qs.order_by("-entrou_esteira_em")
+
+        pagina = self.paginate_queryset(qs)
+        serializer = KitListSerializer(pagina, many=True, context={"request": request})
+        return self.get_paginated_response(serializer.data)
 
     @action(detail=False, methods=["get"])
     def stats(self, request):

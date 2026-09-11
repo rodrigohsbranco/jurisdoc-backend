@@ -95,6 +95,9 @@ CAPACIDADES: list[dict] = [
     {"codigo": "kits.honorarios_iniciais", "recurso": "Produção de Kits", "acao": "Honorários iniciais",
      "descricao": "Ver e editar o campo de honorários iniciais do kit (não herdada por admin)", "categoria": "Documentos"},
 
+    {"codigo": "esteira.visualizar", "recurso": "Esteira", "acao": "Visualizar",
+     "descricao": "Acompanhar a fila de kits assinados consumida pela aplicação externa", "categoria": "Documentos"},
+
     # ===================== Sistema =====================
     {"codigo": "bancos_tarifas.visualizar", "recurso": "Bancos e Tarifas", "acao": "Visualizar",
      "descricao": "Consultar descrições de bancos e tarifas", "categoria": "Sistema"},

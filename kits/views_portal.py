@@ -17,7 +17,7 @@ import logging
 from django.shortcuts import get_object_or_404
 from django.views.generic import TemplateView
 
-from .models import Kit
+from .models import DocumentoKit, Kit
 from .services_zapsign import documento_assinado_no_zapsign
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class AssinaturaPortalView(TemplateView):
         )
 
         documentos = []
-        for doc in kit.documentos.exclude(tipo="assinado_zapsign").order_by("tipo"):
+        for doc in kit.documentos.exclude(tipo__in=DocumentoKit.TIPOS_PROVA).order_by("tipo"):
             assinado = doc.zapsign_status == "signed"
 
             # O webhook é assíncrono: logo após assinar, o status local ainda pode

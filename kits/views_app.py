@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
 from accounts.service_auth import IsServiceAdmin, ServiceClientAuthentication
-from .models import AcaoKit, Kit, resolver_clausula_porcentagem
+from .models import AcaoKit, DocumentoKit, Kit, resolver_clausula_porcentagem
 from .serializers_app import (
     AcaoKitAppSerializer,
     KitAppCreateSerializer,
@@ -18,6 +18,7 @@ from .serializers_app import (
     KitAppListSerializer,
 )
 from .services_documentos import KIT_TEMPLATE_DEFS, TIPOS_COM_CONTRATO, slug_nome_cliente
+from .services_esteira import marcar_assinado
 
 
 TRANSICOES_VALIDAS = {
@@ -124,8 +125,7 @@ class KitAppViewSet(viewsets.ModelViewSet):
                 {"detail": "Só é possível assinar um kit finalizado."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        kit.status = "assinado"
-        kit.save(update_fields=["status", "atualizado_em"])
+        marcar_assinado(kit)
         return Response(KitAppDetailSerializer(kit, context={"request": request}).data)
 
     @action(detail=True, methods=["post"], url_path="mudar-status")
@@ -149,8 +149,12 @@ class KitAppViewSet(viewsets.ModelViewSet):
                 {"detail": "O kit precisa ter pelo menos uma ação para ser finalizado."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        kit.status = novo_status
-        kit.save(update_fields=["status", "atualizado_em"])
+        if novo_status == "assinado":
+            # Passa pelo serviço para que o kit entre na esteira junto.
+            marcar_assinado(kit)
+        else:
+            kit.status = novo_status
+            kit.save(update_fields=["status", "atualizado_em"])
         return Response(KitAppDetailSerializer(kit, context={"request": request}).data)
 
     # ── Advogados ──
@@ -533,7 +537,7 @@ class KitAppViewSet(viewsets.ModelViewSet):
         if kit.zapsign_status == "pending" and kit.zapsign_sign_url:
             docs_info = [
                 {"tipo": d.tipo, "tipo_display": d.get_tipo_display()}
-                for d in kit.documentos.exclude(tipo="assinado_zapsign").order_by("tipo")
+                for d in kit.documentos.exclude(tipo__in=DocumentoKit.TIPOS_PROVA).order_by("tipo")
             ]
             return Response({
                 "status": kit.status,
@@ -543,7 +547,7 @@ class KitAppViewSet(viewsets.ModelViewSet):
             })
 
         # Gera documentos server-side se ainda não existirem
-        if not kit.documentos.exclude(tipo="assinado_zapsign").exists():
+        if not kit.documentos.exclude(tipo__in=DocumentoKit.TIPOS_PROVA).exists():
             from .services_documentos import gerar_documentos_kit
             if kit.tipo == "previdenciario":
                 _auto_snapshot_previdenciario(kit)

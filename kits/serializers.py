@@ -254,6 +254,7 @@ class KitListSerializer(serializers.ModelSerializer):
     cliente_cpf = serializers.CharField(source="cliente.cpf", read_only=True)
     criado_por_nome = serializers.CharField(source="criado_por.username", read_only=True)
     total_acoes = serializers.IntegerField(source="acoes.count", read_only=True)
+    status_esteira_display = serializers.CharField(source="get_status_esteira_display", read_only=True)
 
     class Meta:
         model = Kit
@@ -271,6 +272,12 @@ class KitListSerializer(serializers.ModelSerializer):
             "app_criado_por_nome",
             "notificacao_enviada",
             "notificacao_enviada_em",
+            "via_assinatura",
+            "status_esteira",
+            "status_esteira_display",
+            "entrou_esteira_em",
+            "assumido_em",
+            "baixado_em",
             "criado_em",
             "atualizado_em",
         ]
@@ -284,6 +291,7 @@ class KitDetailSerializer(serializers.ModelSerializer):
     honorarios_iniciais = serializers.DecimalField(
         max_digits=12, decimal_places=2, required=False, allow_null=True,
     )
+    status_esteira_display = serializers.CharField(source="get_status_esteira_display", read_only=True)
 
     class Meta:
         model = Kit
@@ -301,10 +309,22 @@ class KitDetailSerializer(serializers.ModelSerializer):
             "zapsign_doc_token",
             "zapsign_sign_url",
             "zapsign_status",
+            # `via_assinatura` é o único campo do funil que o operador escreve;
+            # o ciclo da esteira é movido pelo serviço, nunca pelo PATCH.
+            "via_assinatura",
+            "status_esteira",
+            "status_esteira_display",
+            "entrou_esteira_em",
+            "assumido_em",
+            "baixado_em",
             "criado_em",
             "atualizado_em",
         ]
-        read_only_fields = ["id", "criado_por", "criado_em", "atualizado_em", "zapsign_doc_token", "zapsign_sign_url", "zapsign_status"]
+        read_only_fields = [
+            "id", "criado_por", "criado_em", "atualizado_em",
+            "zapsign_doc_token", "zapsign_sign_url", "zapsign_status",
+            "status_esteira", "entrou_esteira_em", "assumido_em", "baixado_em",
+        ]
 
     def _pode_honorarios(self) -> bool:
         """True só se o usuário tem a capacidade sensível (sem bypass de admin)."""

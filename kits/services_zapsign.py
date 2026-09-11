@@ -38,7 +38,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.urls import reverse
 
-from .models import Kit
+from .models import DocumentoKit, Kit
 
 logger = logging.getLogger(__name__)
 
@@ -294,7 +294,7 @@ def enviar_para_assinatura(
 
     docs = list(
         kit.documentos
-        .exclude(tipo="assinado_zapsign")
+        .exclude(tipo__in=DocumentoKit.TIPOS_PROVA)
         .order_by("tipo")
     )
     if not docs:
@@ -329,7 +329,7 @@ def enviar_para_assinatura(
 
     # Zera o estado anterior: se o envio falhar no meio, o kit não fica "pending"
     # com um link parcial — a próxima tentativa reenvia tudo.
-    kit.documentos.exclude(tipo="assinado_zapsign").update(
+    kit.documentos.exclude(tipo__in=DocumentoKit.TIPOS_PROVA).update(
         zapsign_doc_token=None,
         zapsign_sign_url=None,
         zapsign_status=None,

@@ -2,9 +2,11 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views_app import AcaoKitAppViewSet, KitAppViewSet
+from .views_esteira import EsteiraViewSet
 
 router = DefaultRouter()
 router.register(r"kits", KitAppViewSet, basename="app-kit")
+router.register(r"esteira", EsteiraViewSet, basename="app-esteira")
 
 urlpatterns = router.urls + [
     path(

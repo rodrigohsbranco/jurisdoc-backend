@@ -19,6 +19,7 @@ from rest_framework.views import APIView
 
 from .models import DocumentoKit, Kit
 from .services_documentos import slug_nome_cliente
+from .services_esteira import marcar_assinado
 from .services_zapsign import baixar_arquivo_assinado, invalidar_cache_status
 
 logger = logging.getLogger(__name__)
@@ -158,10 +159,12 @@ class ZapSignWebhookView(APIView):
         sent_docs = kit.documentos.filter(zapsign_doc_token__isnull=False)
         all_signed = sent_docs.exists() and not sent_docs.exclude(zapsign_status="signed").exists()
         if all_signed:
-            kit.status = "assinado"
             kit.zapsign_status = "signed"
-            kit.save(update_fields=["status", "zapsign_status", "atualizado_em"])
-            logger.info(f"Kit #{kit.id}: todos os documentos assinados — kit marcado como assinado")
+            kit.save(update_fields=["zapsign_status", "atualizado_em"])
+            marcar_assinado(kit, via="zapsign")
+            logger.info(
+                f"Kit #{kit.id}: todos os documentos assinados — kit marcado como assinado e na esteira"
+            )
 
     def _handle_refused_doc(self, doc_kit: DocumentoKit):
         doc_kit.zapsign_status = "refused"
@@ -185,7 +188,7 @@ class ZapSignWebhookView(APIView):
         """
         docs = list(
             kit.documentos
-            .exclude(tipo="assinado_zapsign")
+            .exclude(tipo__in=DocumentoKit.TIPOS_PROVA)
             .order_by("tipo")
         )
         cliente_slug = slug_nome_cliente(kit.cliente.nome_completo or "")
@@ -263,6 +266,6 @@ class ZapSignWebhookView(APIView):
 
         # Marca o kit
         kit.zapsign_status = "signed"
-        kit.status = "assinado"
-        kit.save(update_fields=["zapsign_status", "status", "atualizado_em"])
-        logger.info(f"Kit #{kit.id}: marcado como assinado (bundle extra_docs)")
+        kit.save(update_fields=["zapsign_status", "atualizado_em"])
+        marcar_assinado(kit, via="zapsign")
+        logger.info(f"Kit #{kit.id}: marcado como assinado e na esteira (bundle extra_docs)")

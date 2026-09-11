@@ -1023,11 +1023,15 @@ def gerar_documentos_kit(kit: Kit) -> tuple[list[DocumentoKit], list[str]]:
     include_domicilio = kit.cliente.comprovante_nome_cliente == "nao"
     valid_tipos = {v for v, _ in DocumentoKit.TIPO_CHOICES}
 
-    # Remove documentos anteriores — apaga os arquivos físicos antes dos registros,
+    # Remove as PEÇAS anteriores — apaga os arquivos físicos antes dos registros,
     # senão o Django adiciona sufixo aleatório ao salvar um arquivo com mesmo nome.
-    for _doc in kit.documentos.all():
+    # As provas de assinatura (retorno do ZapSign e digitalizações do presencial)
+    # ficam de fora: regerar as peças não pode destruir a prova de que o kit foi
+    # assinado, que é o que a esteira entrega à aplicação externa.
+    anteriores = kit.documentos.exclude(tipo__in=DocumentoKit.TIPOS_PROVA)
+    for _doc in anteriores:
         _doc.arquivo.delete(save=False)
-    kit.documentos.all().delete()
+    anteriores.delete()
 
     created: list[DocumentoKit] = []
     warnings: list[str] = []
