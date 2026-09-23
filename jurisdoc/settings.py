@@ -110,6 +110,20 @@ STATIC_ROOT = BASE_DIR / "staticfiles"  # útil se você decidir servir estátic
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.getenv("MEDIA_ROOT", str(BASE_DIR / "media"))
 
+# --- Limites de upload ---
+# O default do Django 5 é 100 arquivos por multipart. Um kit com mais de 100
+# ações envia um .docx por ação para /api/templates/compose-to-pdf/ e o parser
+# aborta com TooManyFilesSent (HTTP 400) antes da view rodar. Enquanto a
+# composição não for inteiramente server-side, o teto precisa acomodar kits
+# grandes.
+DATA_UPLOAD_MAX_NUMBER_FILES = int(os.getenv("DATA_UPLOAD_MAX_NUMBER_FILES", "600"))
+
+# --- Conversão de documentos ---
+# Teto do subprocess do LibreOffice. 60s só cobria documentos pequenos: um kit
+# com dezenas de procurações compostas num único .docx estoura com facilidade.
+# Ver kits/services_documentos.py e templates_app/views.py.
+LIBREOFFICE_TIMEOUT = int(os.getenv("LIBREOFFICE_TIMEOUT", "300"))
+
 # WhiteNoise: compressão e hash de arquivo para cache busting
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 

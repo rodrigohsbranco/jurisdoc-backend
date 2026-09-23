@@ -14,11 +14,12 @@ from decimal import ROUND_HALF_UP, Decimal
 from io import BytesIO
 from pathlib import Path
 
+from django.conf import settings
 from django.core.files.base import ContentFile
 
 from templates_app.models import Template
-from templates_app.docx_jinja_normalizer import normalize_docx_jinja_runs
-from templates_app.docx_cleaner import strip_blank_pages
+from templates_app.docx_cache import normalized_docx_stream
+from templates_app.docx_cleaner import strip_blank_pages_document
 from templates_app.docx_style_flattener import flatten_inherited_formatting
 from common.jinja_env import build_env
 from common.bold_markers import aplicar_marcadores_negrito, marcar_negrito
@@ -870,24 +871,18 @@ def _render_template_to_docx(tpl: Template, context: dict) -> bytes:
     if not file_path.exists():
         raise FileNotFoundError(f"Arquivo do template '{tpl.name}' não encontrado no servidor.")
 
-    normalized_path = None
+    doc = DocxTemplate(normalized_docx_stream(file_path))
+    env = build_env()
+    doc.render(context, jinja_env=env)
+    aplicar_marcadores_negrito(doc.docx)
     try:
-        normalized_path = normalize_docx_jinja_runs(file_path)
-        doc = DocxTemplate(str(normalized_path))
-        env = build_env()
-        doc.render(context, jinja_env=env)
-        aplicar_marcadores_negrito(doc.docx)
-        buf = BytesIO()
-        doc.save(buf)
-        buf.seek(0)
-        try:
-            buf = strip_blank_pages(buf)
-        except Exception:
-            buf.seek(0)
-        return buf.read()
-    finally:
-        if normalized_path is not None:
-            normalized_path.unlink(missing_ok=True)
+        strip_blank_pages_document(doc.docx)
+    except Exception:
+        pass  # limpeza é best-effort: melhor o documento sujo que nenhum
+    buf = BytesIO()
+    doc.save(buf)
+    buf.seek(0)
+    return buf.read()
 
 
 def _compose_docx_files(docx_bytes_list: list[bytes]) -> bytes:
@@ -950,7 +945,7 @@ def _run_libreoffice(docx_bytes: bytes) -> bytes:
                 str(input_path),
             ],
             capture_output=True,
-            timeout=120,
+            timeout=settings.LIBREOFFICE_TIMEOUT,
             check=False,
         )
 

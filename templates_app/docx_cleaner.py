@@ -27,9 +27,14 @@ def _has_section_props(p) -> bool:
     return p.find(f"{W}pPr/{W}sectPr") is not None
 
 
-def strip_blank_pages(buf: BytesIO) -> BytesIO:
-    buf.seek(0)
-    doc = Document(buf)
+def strip_blank_pages_document(doc) -> None:
+    """Remove páginas em branco de um Document já aberto, in-place.
+
+    Existe para evitar o ciclo salvar -> reabrir -> salvar: quem acabou de
+    renderizar o documento já o tem em memória, e reserializar só para limpá-lo
+    custa um round-trip de zip inteiro (~0,6s por documento, multiplicado pelo
+    número de ações do kit).
+    """
     body = doc.element.body
     paragraphs = body.findall(f"{W}p")
 
@@ -54,6 +59,12 @@ def strip_blank_pages(buf: BytesIO) -> BytesIO:
             continue
         prev_was_break_only = only_break
 
+
+def strip_blank_pages(buf: BytesIO) -> BytesIO:
+    """Versão em bytes, para quem só tem o .docx serializado em mãos."""
+    buf.seek(0)
+    doc = Document(buf)
+    strip_blank_pages_document(doc)
     out = BytesIO()
     doc.save(out)
     out.seek(0)

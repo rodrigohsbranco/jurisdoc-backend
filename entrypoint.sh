@@ -9,9 +9,14 @@ if [ "${RUN_DB_MIGRATIONS:-true}" = "true" ]; then
   python manage.py sync_capacidades
 fi
 
+# Worker sync bloqueia o processo inteiro durante uma conversão LibreOffice
+# (minutos, em kits grandes). Com gthread, os outros pedidos continuam sendo
+# atendidos pelas demais threads enquanto o subprocess roda.
 exec gunicorn \
-  --workers 2 \
-  --timeout 120 \
+  --worker-class gthread \
+  --workers "${GUNICORN_WORKERS:-2}" \
+  --threads "${GUNICORN_THREADS:-4}" \
+  --timeout "${GUNICORN_TIMEOUT:-300}" \
   -b 0.0.0.0:8000 \
   --log-level debug \
   --access-logfile - \

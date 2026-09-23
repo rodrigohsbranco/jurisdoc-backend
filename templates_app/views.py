@@ -18,9 +18,8 @@ from common.bold_markers import aplicar_marcadores_negrito
 
 from .models import Template
 from .serializers import TemplateSerializer
-from .utils_jinja import analyze_jinja_docx
-from .docx_jinja_normalizer import normalize_docx_jinja_runs
-from .docx_cleaner import strip_blank_pages
+from .docx_cache import analyze_jinja_docx_cached, normalized_docx_stream
+from .docx_cleaner import strip_blank_pages_document
 from .docx_style_flattener import flatten_inherited_formatting
 from .docx_page_numbering import (
     add_page_numbering_simple,
@@ -165,7 +164,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
                     str(input_path),
                 ],
                 capture_output=True,
-                timeout=60,
+                timeout=settings.LIBREOFFICE_TIMEOUT,
                 check=False,
             )
 
@@ -378,7 +377,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        info = analyze_jinja_docx(file_path)
+        info = analyze_jinja_docx_cached(file_path)
 
         return Response({
             "syntax": ("jinja (mixed: angle present)" if info["has_angle"] else info["syntax"]),
@@ -405,7 +404,7 @@ class TemplateViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        info = analyze_jinja_docx(file_path)
+        info = analyze_jinja_docx_cached(file_path)
         if info["has_angle"]:
             return None, Response(
                 {"detail": "Este template usa '<< >>'. Atualize para Jinja {{ }} antes de renderizar."},
@@ -447,10 +446,8 @@ class TemplateViewSet(viewsets.ModelViewSet):
             except Cliente.DoesNotExist:
                 pass
 
-        normalized_path = None
         try:
-            normalized_path = normalize_docx_jinja_runs(file_path)
-            doc = DocxTemplate(str(normalized_path))
+            doc = DocxTemplate(normalized_docx_stream(file_path))
             env = build_env()
 
             # imagem_do_contrato: caminho relativo a MEDIA_ROOT ("/media/..." ou "media/...")
@@ -468,23 +465,20 @@ class TemplateViewSet(viewsets.ModelViewSet):
 
             doc.render(context, jinja_env=env)
             aplicar_marcadores_negrito(doc.docx)
+            try:
+                strip_blank_pages_document(doc.docx)
+            except Exception:
+                pass  # limpeza é best-effort: melhor o documento sujo que nenhum
 
             buf = BytesIO()
             doc.save(buf)
             buf.seek(0)
-            try:
-                buf = strip_blank_pages(buf)
-            except Exception:
-                buf.seek(0)
             return buf.read(), None
         except Exception as exc:
             return None, Response(
                 {"detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        finally:
-            if normalized_path is not None:
-                normalized_path.unlink(missing_ok=True)
 
     @action(detail=True, methods=["post"])
     def render(self, request, pk=None):
