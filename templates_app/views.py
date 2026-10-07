@@ -15,11 +15,13 @@ from permissoes.permissions import HasCapability
 
 from common.jinja_env import build_env
 from common.bold_markers import aplicar_marcadores_negrito
+from common.variaveis_virgula import adicionar_variaveis_virgula
 
 from .models import Template
 from .serializers import TemplateSerializer
 from .docx_cache import analyze_jinja_docx_cached, normalized_docx_stream
 from .docx_cleaner import strip_blank_pages_document
+from .docx_punctuation_cleaner import limpar_pontuacao_vazia
 from .docx_style_flattener import flatten_inherited_formatting
 from .docx_page_numbering import (
     add_page_numbering_simple,
@@ -446,6 +448,9 @@ class TemplateViewSet(viewsets.ModelViewSet):
             except Cliente.DoesNotExist:
                 pass
 
+        # Variáveis `_v` ("valor, " ou ""): depois do pré-preenchimento do cliente
+        adicionar_variaveis_virgula(context)
+
         try:
             doc = DocxTemplate(normalized_docx_stream(file_path))
             env = build_env()
@@ -465,6 +470,10 @@ class TemplateViewSet(viewsets.ModelViewSet):
 
             doc.render(context, jinja_env=env)
             aplicar_marcadores_negrito(doc.docx)
+            try:
+                limpar_pontuacao_vazia(doc.docx)
+            except Exception:
+                pass  # best-effort: vírgulas sobrando são melhores que erro no render
             try:
                 strip_blank_pages_document(doc.docx)
             except Exception:

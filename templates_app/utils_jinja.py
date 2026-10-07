@@ -17,6 +17,8 @@ from pathlib import Path
 from zipfile import ZipFile
 from typing import List, Tuple, Dict, Any
 
+from common.variaveis_virgula import VARIAVEIS_VIRGULA
+
 # {{ variavel }} ou {{ cliente.nome }}
 JINJA_VAR_RE   = re.compile(r"{{\s*([a-zA-Z_][\w\.]*)\s*}}")
 # blocos de controle Jinja (apenas para diagnóstico de sintaxe)
@@ -57,6 +59,9 @@ def _read_xml_from_docx(docx_path: Path) -> str:
 
 def _extract_from_text(txt: str) -> Dict[str, Any]:
     vars_ = sorted({m.group(1) for m in JINJA_VAR_RE.finditer(txt)})
+    # Variáveis `_v` são geradas no render: não são pedidas ao usuário
+    # nem contam como faltantes na validação.
+    vars_ = [v for v in vars_ if v not in VARIAVEIS_VIRGULA]
     fields = []
     for v in vars_:
         name = _snake_case(v)

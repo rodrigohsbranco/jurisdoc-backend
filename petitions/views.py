@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from permissoes.permissions import HasCapability
 
 from common.jinja_env import build_env
+from common.variaveis_virgula import adicionar_variaveis_virgula
 
 from .models import Petition
 from .serializers import PetitionSerializer
@@ -23,6 +24,7 @@ from templates_app.models import Template as DocTemplate
 from templates_app.utils_jinja import analyze_jinja_docx
 from templates_app.docx_jinja_normalizer import normalize_docx_jinja_runs
 from templates_app.docx_cleaner import strip_blank_pages
+from templates_app.docx_punctuation_cleaner import limpar_pontuacao_vazia
 
 # Import para buscar a descrição ativa do banco
 from cadastro.models import DescricaoBanco
@@ -232,6 +234,9 @@ class PetitionViewSet(viewsets.ModelViewSet):
         context["total_contratos"] = len(contratos)
         context["contratos_ids_utilizados"] = contratos_ids
 
+        # Variáveis `_v` ("valor, " ou ""): depois de todo o pré-preenchimento
+        adicionar_variaveis_virgula(context)
+
         # ---------------------------------------------------
         # Validações e geração do documento
         # ---------------------------------------------------
@@ -265,6 +270,10 @@ class PetitionViewSet(viewsets.ModelViewSet):
             doc = DocxTemplate(str(normalized_path))
             env = build_env()
             doc.render(context, jinja_env=env)
+            try:
+                limpar_pontuacao_vazia(doc.docx)
+            except Exception:
+                pass  # best-effort: vírgulas sobrando são melhores que erro no render
 
             buf = BytesIO()
             doc.save(buf)

@@ -20,9 +20,11 @@ from django.core.files.base import ContentFile
 from templates_app.models import Template
 from templates_app.docx_cache import normalized_docx_stream
 from templates_app.docx_cleaner import strip_blank_pages_document
+from templates_app.docx_punctuation_cleaner import limpar_pontuacao_vazia
 from templates_app.docx_style_flattener import flatten_inherited_formatting
 from common.jinja_env import build_env
 from common.bold_markers import aplicar_marcadores_negrito, marcar_negrito
+from common.variaveis_virgula import adicionar_variaveis_virgula
 from .models import DocumentoKit, Kit
 
 try:
@@ -871,10 +873,18 @@ def _render_template_to_docx(tpl: Template, context: dict) -> bytes:
     if not file_path.exists():
         raise FileNotFoundError(f"Arquivo do template '{tpl.name}' não encontrado no servidor.")
 
+    # Variáveis `_v` numa cópia: o mesmo contexto base é reaproveitado entre
+    # documentos (ex.: procurações por ação) e não pode carregar `_v` antigas.
+    context = adicionar_variaveis_virgula(dict(context))
+
     doc = DocxTemplate(normalized_docx_stream(file_path))
     env = build_env()
     doc.render(context, jinja_env=env)
     aplicar_marcadores_negrito(doc.docx)
+    try:
+        limpar_pontuacao_vazia(doc.docx)
+    except Exception:
+        pass  # best-effort: vírgulas sobrando são melhores que erro no render
     try:
         strip_blank_pages_document(doc.docx)
     except Exception:
